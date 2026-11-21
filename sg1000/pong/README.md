@@ -57,7 +57,7 @@ You need [sjasmplus](https://github.com/z00m128/sjasmplus):
 git clone https://github.com/z00m128/sjasmplus
 cd sjasmplus && make && sudo make install   # or just keep the binary around
 
-cd pong
+cd sg1000/pong           # from the repository root
 make                     # -> pong.sg  (16 KB)
 make SJASMPLUS=/path/to/sjasmplus
 ```

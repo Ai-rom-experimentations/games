@@ -1,9 +1,23 @@
-# sg1000
+# homebrew
 
-non-ported, ai assisted homebrew titles for the sg-1000
+AI assisted, non-ported homebrew titles.
 
-## Titles
+One folder per console, one folder per game inside it:
 
-| title | folder | what it is |
+```
+<console>/<title>/          e.g. sg1000/pong/
+```
+
+| console | folder | titles |
 |---|---|---|
-| **Pong** | [`pong/`](pong) | a close reconstruction of Atari's 1972 arcade Pong - Z80 assembly, 16 KB cartridge, 1 or 2 players ([screenshots](pong/screenshots), [README](pong/README.md)) |
+| **SG-1000** | [`sg1000/`](sg1000) | **Pong** - Atari's 1972 arcade game in Z80 assembly, 16 KB cartridge, one or two players ([folder](sg1000/pong), [screenshots](sg1000/pong/screenshots), [README](sg1000/pong/README.md)) |
+| **Master System** | [`sms/`](sms) | - |
+| **MSX** | [`msx/`](msx) | - |
+| **NES** | [`nes/`](nes) | - |
+
+Every game folder is self contained: the sources and artwork, a `Makefile`
+that assembles the ROM (`make`) and runs the headless test (`make check`),
+the built image, and a README explaining the hardware details.
+
+The repository is called `sg1000` for historical reasons - it started with
+the SG-1000 title above and now holds all of them.
