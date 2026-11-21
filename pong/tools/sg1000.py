@@ -9,7 +9,12 @@ Requires: pip install z80 pillow
 """
 
 CLOCK = 3579545
-TICKS_PER_FRAME = CLOCK // 60          # 59659
+# NTSC TMS9918A timing: 262 lines x 342 dots at 5.369318 MHz, with the Z80
+# running at 2/3 of the dot clock, so one frame is 59736 T-states (59.92 Hz);
+# the vblank flag is raised after the 192 visible lines.
+TICKS_PER_FRAME = 262 * 342 * 2 // 3   # 59736
+VISIBLE_TICKS = 192 * 342 * 2 // 3     # 43776
+VBLANK_TICKS = TICKS_PER_FRAME - VISIBLE_TICKS
 
 # TMS9918A palette (well known RGB approximations)
 PALETTE = [
@@ -80,12 +85,15 @@ class TMS9918:
         return (self.regs[2] & 0x0F) * 0x400
 
     @property
-    def pattern_base(self):
-        return (self.regs[3] & 0x07) * 0x800
+    def color_base(self):
+        # TMS9918A datasheet: R3 holds the colour table base in units of $40
+        # ($2000 / $40 = $80, so bit 7 shifts out of the 16K range by itself).
+        return (self.regs[3] * 0x40) & 0x3FFF
 
     @property
-    def color_base(self):
-        return (self.regs[4] << 6) & 0x3FFF
+    def pattern_base(self):
+        # R4 holds the pattern generator base in units of $800.
+        return (self.regs[4] & 0x07) * 0x800
 
     @property
     def sat_base(self):
@@ -309,8 +317,7 @@ class SG1000:
         self.joy2 = v
 
     # ---- running -------------------------------------------------------
-    def run_frame(self, ticks=TICKS_PER_FRAME):
-        self.vdp.status |= 0x80             # vertical blank flag
+    def run_ticks(self, ticks):
         self.cpu.ticks_to_stop = ticks
         guard = 0
         while self.cpu.ticks_to_stop > 0:
@@ -318,6 +325,17 @@ class SG1000:
             guard += 1
             if guard > 200:
                 break
+
+    def run_frame(self):
+        """One frame, ending where the VDP raises the vertical blank flag.
+
+        The frame boundary is placed there (and not at the start of the next
+        frame) so that frame N here is frame N on other emulators, which is
+        what makes diffing against the Gearsystem core possible.
+        """
+        self.run_ticks(VBLANK_TICKS)        # the 70 vblank lines before it
+        self.run_ticks(VISIBLE_TICKS)       # the 192 visible lines
+        self.vdp.status |= 0x80             # vertical blank flag
         return self.cpu.pc
 
     def screenshot(self):

@@ -92,6 +92,7 @@ boot:
         call psg_init
         call gfx_upload
         call sprites_hide_all
+        call vdp_display_on
         xor a
         ld (paused),a
         ld (nmi_req),a
@@ -217,18 +218,10 @@ vdp_write:
         ret
 
 vdp_init:
-        ; wipe all 16 KB of VRAM
-        ld hl, 0x0000
-        call vdp_setaddr
-        ld bc, 0x4000
-.clr:
-        xor a
-        out (VDPDATA), a
-        dec bc
-        ld a, b
-        or c
-        jr nz, .clr
-        ; control registers
+        ; registers first, with the display still blanked: a real SG-1000
+        ; powers up with R1 = $00, so the VDP addresses VRAM in its 4K layout
+        ; until R1 bit 7 is written.  Programming R1 up front switches it to
+        ; 16K before anything else touches VRAM.
         ld hl, vdp_regs
         ld c, 0
         ld b, 8
@@ -241,16 +234,36 @@ vdp_init:
         inc hl
         inc c
         djnz .rl
+        ; now wipe all 16 KB of VRAM while the display is off
+        ld hl, 0x0000
+        call vdp_setaddr
+        ld bc, 0x4000
+.clr:
+        xor a
+        out (VDPDATA), a
+        dec bc
+        ld a, b
+        or c
+        jr nz, .clr
+        ret
+
+; unblank the display once the tables are in place
+vdp_display_on:
+        ld a, 0xe0                    ; 16K, display on, frame interrupt enabled
+                                      ; (the Z80 keeps IRQs masked and polls
+                                      ;  the status read flag instead)
+        out (VDPCTRL), a
+        ld a, 0x81
+        out (VDPCTRL), a
         ret
 
 vdp_regs:
         db 0x00                       ; R0: Graphics I
-        db 0xe0                       ; R1: 16K, display on, interrupt flag on
-                                      ; (the Z80 keeps IRQs masked and polls
-                                      ;  the status read flag instead)
-        db 0x06                       ; R2: name table    $1800
-        db 0x00                       ; R3: patterns      $0000
-        db 0x80                       ; R4: colours       $2000
+        db 0xa0                       ; R1: 16K + interrupt flag, display off
+                                      ;  (vdp_display_on sets bit 6 later)
+        db 0x06                       ; R2: name table    $1800  (x $400)
+        db 0x80                       ; R3: colour table  $2000  (unit $40)
+        db 0x00                       ; R4: patterns      $0000  (x $800)
         db 0x36                       ; R5: sprite attrs  $1B00
         db 0x07                       ; R6: sprite pats   $3800
         db 0x00                       ; R7: black backdrop
@@ -1014,11 +1027,21 @@ over_text:
         call draw_text_str
         ld a, (winner)
         cp 1
-        ld hl, str_p1wins
-        jr z, .p
+        jr z, .p1
+        ld a, (mode)                   ; mode 1 = one player, paddle 2 is the CPU
+        or a
+        jr nz, .cpu
         ld hl, str_p2wins
-.p:
         ld b, 9
+        jr .p
+.cpu:
+        ld hl, str_cpuwins
+        ld b, 11
+        jr .p
+.p1:
+        ld hl, str_p1wins
+        ld b, 9
+.p:
         ld c, 12
         call draw_text_str
         ld hl, str_again
@@ -1078,6 +1101,7 @@ draw_text_str:
 str_gameover:  db "GAME OVER", 0
 str_p1wins:    db "PLAYER 1 WINS", 0
 str_p2wins:    db "PLAYER 2 WINS", 0
+str_cpuwins:   db "CPU WINS     ", 0   ; padded so it clears the wider string
 str_again:     db "PRESS 1 TO PLAY AGAIN", 0
 
 ; ==========================================================================
