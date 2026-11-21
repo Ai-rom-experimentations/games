@@ -76,6 +76,17 @@ laps        equ ram+13
 rlaps       equ ram+14
 hit         equ ram+15         ; a wall stopped us this frame
 hit_prev    equ ram+16
+sfx1        equ ram+17         ; channel 1 (the dialogue blips) timer
+sfx3        equ ram+18         ; channel 3 (the wall thud) timer
+jingle_time equ ram+19         ; frames left on the current note
+jingle_ptr  equ ram+20         ; two bytes: where the note stream is
+dlg_state   equ ram+22         ; 0 off, 1 typing, 2 finished
+dlg_stream  equ ram+23         ; two bytes: the stream being typed
+dlg_ptr     equ ram+25         ; two bytes: the next character
+dlg_col     equ ram+27
+dlg_row     equ ram+28
+dlg_timer   equ ram+29
+dlg_expr    equ ram+30         ; which portrait expression to show
 
         org 0x0000
         di
@@ -207,7 +218,8 @@ race_start:
         call draw_track
         call draw_hud
         call update_sprites
-        ret
+        ld hl, jingle_start
+        jp jingle_play
 
 tick_race:
         call move_car
@@ -216,6 +228,9 @@ tick_race:
         dec a
         ret nz                        ; the race ended on this frame
         call move_rival
+        ld a, (state)
+        dec a
+        ret nz                        ; Susie's third lap ended the race
         jp update_sprites
 
 ; ---- the player: 4 directions, walls stop the square ---------------------
@@ -305,7 +320,7 @@ move_car:
         jr z, .quiet
         call sfx_bump
 .quiet:
-        ld a, (hit)                         ; sfx_play clobbers B, so re-read it
+        ld a, (hit)                         ; read it back: the sound code is free to use B
         ld (hit_prev), a
         ret
 
@@ -469,48 +484,61 @@ rival_lap:
 race_win:
         ld a, 2
         ld (state), a
-        call sfx_win
-        call draw_track
+        ld hl, dlg_win
+        xor a                             ; expression 0: Susie is sulking
+        call end_screen
         ld hl, str_win
-        ld b, 12
+        ld b, 13
         ld c, 9
         call draw_text_str
-        ld hl, str_3laps
-        ld b, 13
-        ld c, 11
-        call draw_text_str
         ld hl, str_press
-        ld b, 12
-        ld c, 14
-        jp draw_text_str
+        ld b, 13
+        ld c, 13
+        call draw_text_str
+        ld hl, jingle_win
+        jp jingle_play
 
 race_lose:
         ld a, 3
         ld (state), a
-        call sfx_lose
-        call draw_track
-        ld hl, str_susie
-        ld b, 13
+        ld hl, dlg_lose
+        ld a, 1                           ; expression 1: Susie is gloating
+        call end_screen
+        ld hl, str_susiewins
+        ld b, 12
         ld c, 9
         call draw_text_str
-        ld hl, str_wins
-        ld b, 14
-        ld c, 10
-        call draw_text_str
         ld hl, str_press
-        ld b, 12
-        ld c, 14
-        jp draw_text_str
+        ld b, 13
+        ld c, 13
+        call draw_text_str
+        ld hl, jingle_lose
+        jp jingle_play
+
+; HL = the dialogue stream, A = which portrait expression to show
+end_screen:
+        ld (dlg_expr), a
+        ld (dlg_stream), hl
+        call draw_dialog_map
+        ld hl, (dlg_stream)
+        call dlg_begin
+        ld a, (dlg_expr)
+        jp sprites_portrait
 
 tick_over:
+        call dlg_tick                     ; keep typing
         ld a, (pad1)
         bit 4, a
         jr z, .no
         ld a, (prev1)
         bit 4, a
-        jr nz, .no
-        call title_enter
-        ret
+        ret nz                            ; the button was already down
+        ld a, (dlg_state)
+        cp 2
+        jr z, .leave
+        jp dlg_flush                      ; first press: hurry the text up
+.leave:
+        jp title_enter                    ; then back to the title screen
 .no:
         ret
 
@@ -522,6 +550,94 @@ draw_track:
         ld de, 0x1800
         ld bc, 768
         jp vdp_write
+
+draw_dialog_map:
+        ld hl, dialog_map
+        ld de, 0x1800
+        ld bc, 768
+        jp vdp_write
+
+; ==========================================================================
+;  the dialogue box: a typewriter that prints one character every other
+;  frame with a blip.  A stream is  col, row, "text", 0 ... $FF
+; ==========================================================================
+dlg_begin:                                ; HL = stream
+        ld a, 1
+        ld (dlg_state), a
+        ld a, 2
+        ld (dlg_timer), a
+        jp dlg_next_line
+
+dlg_next_line:                            ; HL = col, row, text...
+        ld a, (hl)
+        ld (dlg_col), a
+        inc hl
+        ld a, (hl)
+        ld (dlg_row), a
+        inc hl
+        ld (dlg_ptr), hl
+        ret
+
+dlg_tick:                                 ; once a frame
+        ld a, (dlg_state)
+        dec a
+        ret nz                            ; 0 = nothing on screen, 2 = done
+        ld a, (dlg_timer)
+        or a
+        jr z, dlg_step
+        dec a
+        ld (dlg_timer), a
+        ret
+
+dlg_step:                                 ; print one more character
+        ld a, (dlg_state)
+        dec a
+        ret nz
+        ld a, 2
+        ld (dlg_timer), a
+        ld hl, (dlg_ptr)
+        ld a, (hl)
+        or a
+        jr nz, .print
+        inc hl                            ; the line ended
+        ld a, (hl)
+        cp 0xff
+        jr z, .done
+        jp dlg_next_line                  ; on to the next line
+.done:
+        ld a, 2
+        ld (dlg_state), a
+        ret
+.print:
+        sub 0x20
+        add a, TILE_FONT
+        ld c, a                           ; the tile
+        ld a, (dlg_col)
+        ld b, a
+        ld a, (dlg_row)
+        ld e, a
+        ld a, c
+        ld c, e
+        call put_tile
+        ld hl, (dlg_ptr)
+        inc hl
+        ld (dlg_ptr), hl
+        ld a, (dlg_col)
+        inc a
+        ld (dlg_col), a
+        jp sfx_blip
+
+dlg_flush:                                ; fill the box in at once
+        ld b, 120
+.loop:
+        push bc
+        call dlg_step
+        pop bc
+        ld a, (dlg_state)
+        cp 2
+        ret z
+        djnz .loop
+        ret
 
 ; the title text table from gfx.asm: col, row, text, 0 ... $FF
 draw_title_text:
@@ -657,6 +773,16 @@ update_sprites:
         out (VDPDATA), a
         ret
 
+sprites_portrait:                         ; A = 0 sulking, 1 gloating
+        or a
+        ld hl, portrait_sat_1
+        jr nz, .go
+        ld hl, portrait_sat_0
+.go:
+        ld de, 0x1b00
+        ld bc, 81
+        jp vdp_write
+
 sprites_hide_all:
         ld hl, 0x1b00
         call vdp_setaddr
@@ -752,6 +878,10 @@ gfx_upload:
         ld hl, sprite_patterns
         ld de, 0x3800
         ld bc, 8
+        call vdp_write
+        ld hl, portrait_data              ; Susie's two portraits
+        ld de, 0x3800 + PORTRAIT_BASE * 8
+        ld bc, 40 * 8
         jp vdp_write
 
 ; ==========================================================================
@@ -768,63 +898,142 @@ psg_init:
         out (PSG), a
         ret
 
-; HL = tone divider (3579545 / (32 * N) Hz), C = length in frames
-sfx_play:
+; HL = 10 bit divider (3579545 / (32 * N) Hz), B = $80 channel 0 / $A0
+; channel 1, A = volume attenuation (0 loudest, 15 silent)
+psg_tone:
+        push af
         ld a, l
         and 0x0f
-        or 0x80
+        or b
         out (PSG), a
         ld a, h
         add a, a
         add a, a
         add a, a
         add a, a
-        ld b, a
+        ld c, a
         ld a, l
         rrca
         rrca
         rrca
         rrca
         and 0x0f
-        or b
+        or c
         and 0x3f
         out (PSG), a
-        ld a, 0x90
+        pop af
+        or b
+        or 0x10
         out (PSG), a
-        ld a, c
+        ret
+
+; ---- one shot on channel 0: HL = divider, A = length in frames ----------
+sfx_ch0:
+        push af
+        ld b, 0x80
+        xor a
+        call psg_tone
+        pop af
         ld (sfx_time), a
         ret
 
-sfx_tick:
-        ld a, (sfx_time)
+; ---- one shot on channel 1: HL = divider, A = length in frames ----------
+sfx_ch1:
+        push af
+        ld b, 0xa0
+        ld a, 2                           ; the blips are a bit quieter
+        call psg_tone
+        pop af
+        ld (sfx1), a
+        ret
+
+; ---- the wall thud: noise on channel 3, low rate, very short ------------
+sfx_bump:
+        ld a, 0xe6                        ; white noise, slowest rate
+        out (PSG), a
+        ld a, 0xf2                        ; channel 3 volume
+        out (PSG), a
+        ld a, 3
+        ld (sfx3), a
+        ret
+
+sfx_lap:                                  ; a lap: a short high blip
+        ld hl, 340
+        ld a, 6
+        jp sfx_ch0
+
+sfx_blip:                                 ; one dialogue character, ~1.2 kHz
+        ld hl, 95
+        ld a, 1
+        jp sfx_ch1
+
+; ---- the little note player behind the jingles -------------------------
+; a stream is: frames, divider low, divider high, ... ending with a 0 count
+jingle_play:                              ; HL = stream
+        ld a, (hl)
+        or a
+        ret z
+        ld (jingle_ptr), hl
+        ld a, 1
+        ld (jingle_time), a               ; the first note starts next frame
+        ret
+
+jingle_tick:
+        ld a, (jingle_time)
         or a
         ret z
         dec a
-        ld (sfx_time), a
+        ld (jingle_time), a
         ret nz
-        ld a, 0x9f
+        ld hl, (jingle_ptr)
+        ld a, (hl)
+        or a
+        jr nz, .note
+        ld a, 0x9f                        ; the stream ended
         out (PSG), a
         ret
+.note:
+        inc hl
+        ld e, (hl)
+        inc hl
+        ld d, (hl)
+        inc hl
+        ld (jingle_ptr), hl
+        ld (jingle_time), a
+        ex de, hl                         ; HL = divider
+        ld b, 0x80
+        xor a
+        jp psg_tone
 
-sfx_bump:                                  ; you hit a wall, ~113 Hz
-        ld hl, 990
-        ld c, 4
-        jp sfx_play
-
-sfx_lap:                                   ; a lap, ~340 Hz
-        ld hl, 340
-        ld c, 8
-        jp sfx_play
-
-sfx_win:                                   ; ~228 Hz
-        ld hl, 228
-        ld c, 24
-        jp sfx_play
-
-sfx_lose:                                  ; low and long, ~495 Hz
-        ld hl, 495
-        ld c, 24
-        jp sfx_play
+sfx_tick:
+        ld a, (sfx_time)                  ; channel 0 one shots
+        or a
+        jr z, .ch1
+        dec a
+        ld (sfx_time), a
+        jr nz, .ch1
+        ld a, 0x9f
+        out (PSG), a
+.ch1:
+        ld a, (sfx1)
+        or a
+        jr z, .ch3
+        dec a
+        ld (sfx1), a
+        jr nz, .ch3
+        ld a, 0xbf
+        out (PSG), a
+.ch3:
+        ld a, (sfx3)
+        or a
+        jr z, .jingle
+        dec a
+        ld (sfx3), a
+        jr nz, .jingle
+        ld a, 0xff
+        out (PSG), a
+.jingle:
+        jp jingle_tick
 
 ; ==========================================================================
 ;  input / pause
@@ -879,9 +1088,36 @@ str_lap:       db "LAP ", 0
 str_of3:       db "/3", 0
 str_susie:     db "SUSIE ", 0
 str_win:       db "YOU WIN", 0
-str_3laps:     db "3 LAPS", 0
-str_wins:      db "WINS", 0
+str_susiewins: db "SUSIE WINS", 0
 str_press:     db "PRESS 1", 0
+
+; ---- the little tunes.  A stream is  frames, divider low, divider high
+;      and a zero frame count ends it.  The dividers are 3579545/(32*N) Hz.
+NOTE_C4        equ 428
+NOTE_E4        equ 339
+NOTE_G4        equ 285
+NOTE_C5        equ 214
+NOTE_E5        equ 170
+NOTE_G5        equ 143
+NOTE_C6        equ 107
+
+jingle_start:                             ; race start
+        db 4, NOTE_G5 & 0xff, NOTE_G5 >> 8
+        db 10, NOTE_C6 & 0xff, NOTE_C6 >> 8
+        db 0
+
+jingle_win:                               ; a rising sting
+        db 5, NOTE_C5 & 0xff, NOTE_C5 >> 8
+        db 5, NOTE_E5 & 0xff, NOTE_E5 >> 8
+        db 5, NOTE_G5 & 0xff, NOTE_G5 >> 8
+        db 18, NOTE_C6 & 0xff, NOTE_C6 >> 8
+        db 0
+
+jingle_lose:                              ; and a falling one
+        db 8, NOTE_G4 & 0xff, NOTE_G4 >> 8
+        db 8, NOTE_E4 & 0xff, NOTE_E4 >> 8
+        db 20, NOTE_C4 & 0xff, NOTE_C4 >> 8
+        db 0
 
 ; ==========================================================================
 ;  graphics data (generated by tools/gen_gfx.py)

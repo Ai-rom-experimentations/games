@@ -30,6 +30,19 @@ KEYS = {"n": 0, "u": P1_UP, "d": P1_DOWN, "l": P1_LEFT, "r": P1_RIGHT,
 
 R_STATE, R_PX, R_PY, R_PAUSED = 0, 7, 8, 3
 SAT = 0x1B00
+CH = {P1_UP: "u", P1_DOWN: "d", P1_LEFT: "l", P1_RIGHT: "r"}
+
+
+def lose_script():
+    """Wall to wall: every leg runs until a wall stops the square, so one
+    frame of pad timing cannot change where the car ends up.  Susie's laps
+    depend only on the frame count, so she wins at the same frame on every
+    core - which makes the lose screen (portrait, box and all) safe to
+    compare pixel for pixel.  The frames after that let the text type out.
+    """
+    leg = "u" * 70 + "l" * 140 + "u" * 300 + "r" * 460 + "d" * 300 + "l" * 460
+    head = "n" * 45 + "b" + "n" * 6
+    return (head + leg * 3)[:1950] + "n" * 300
 
 
 def run_ours(script):
@@ -84,7 +97,24 @@ def main():
     check(but2 == free[:1] + [100, 0, 0x0F],
           "joypad button 2 freezes it as well (x=%d)" % but2[1])
 
-    print("\n%d checks, %d failed" % (8, len(fails)))
+    # ---- the end screen, portrait and all, on the real core
+    print("the dialogue box on the real core")
+    script = lose_script()
+    emu = run_ours(script)
+    bmp, vram = run_gs(gem, script, "lose")
+    check(emu.ram(0) == 3, "the script loses the race (%d frames)" % len(script))
+    check(emu.screenshot().tobytes() == bmp,
+          "the lose screen is identical pixel for pixel")
+    check(bytes(emu.vdp.vram) == vram, "and so is VRAM, portrait patterns included")
+    own = list(vram[SAT:SAT + 8])
+    check(own[0:4] == [143, 24, 52, 0x0D] and own[6] == 53,
+          "Susie's portrait is on the left of the box %s" % own)
+    lines = ["".join(chr(32 + vram[0x1800 + row * 32 + 8 + i] - 13) for i in range(n))
+             for row, n in ((18, 21), (20, 15), (22, 22))]
+    check(lines == ["SUSIE: MAN, IT'S LIKE", "YOU'RE NOT EVEN", "LOOKING AT THE SCREEN."],
+          "and her three lines are typed out there %s" % lines)
+
+    print("\n%d checks, %d failed" % (8 + 6, len(fails)))
     for f in fails:
         print("  -", f)
     return 1 if fails else 0

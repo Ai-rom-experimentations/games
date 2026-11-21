@@ -59,7 +59,14 @@ Sources: [TCRF - Deltarune Chapter 3, "Racing Game Visuals"](https://tcrf.net/De
   cannot win by wiggling over the line.
 * The middle square is the scoreboard - `LAP 1/3` and `SUSIE 1/3` are drawn
   inside it.  Same view as the hidden screen in the real game, just visible.
-* Square wave blips on the SN76489: a wall bump, a lap, the win and the loss.
+* Sounds on the SN76489, close to the ones in the real Green Room scene: a
+  low **noise thud** when a wall stops the square (that is the sound Kris'
+  hands stop to), a short blip per lap, and a little rising / falling tune for
+  the win and the loss.
+* Susie **talks to you** on the end screens.  A dialogue box is drawn along
+  the bottom of the screen over the track, her **portrait** sits on the left
+  of it, and her line from the game types itself out with a blip per letter.
+  She has two faces: sulking when Kris wins, gloating when she wins.
 * The console's HOLD button - labelled **HOLD** on the SG-1000, PAUSE on the
   SG-1000 II - freezes the game.  Joypad 1 **button 2** taps the same switch
   for emulators whose overlay does not give you the console button.
@@ -68,13 +75,42 @@ Sources: [TCRF - Deltarune Chapter 3, "Racing Game Visuals"](https://tcrf.net/De
 
 ![Susie wins](screenshots/lose.png)
 
+## Susie has something to say
+
+Both end screens end with a line lifted from the scene itself - the Green
+Room, after the race on the left TV:
+
+| | |
+|---|---|
+| Kris wins | `SUSIE: HOW THE HECK...` / `ALRIGHT, WE'RE DONE.` |
+| Susie wins | `SUSIE: MAN, IT'S LIKE` / `YOU'RE NOT EVEN` / `LOOKING AT THE SCREEN.` |
+
+(From the Chapter 3 script dump of the Green Room, in the "Left TV" section -
+the same exchange the wiki paraphrases as Susie giving up after three tries.
+The SG-1000 font has no lower case, so the lines are in capitals.)
+
+The box is 30 cells wide and 7 rows tall; it replaces the bottom straight and
+the bottom wall, so the track map is redrawn from `dialog_map` instead of
+`track_map`.  The portrait is 32x40 pixels - a 4x5 grid of character cells -
+and it is drawn as **sprites**, not tiles, so the black of the box shows
+through around her silhouette.  A sprite costs four bytes and a tile costs
+two, but the palette makes up for it: an 8x8 cell can only have one colour, so
+the face is one magenta shape (`$0D`) with the features cut out as black
+holes, plus a single white cell (`$0F`) for the eye.  The two expressions are
+two sets of twenty sprite patterns, so the switch is six bytes of sprite
+attribute table.
+
+The text is a typewriter: one letter every third frame, a 1.2 kHz blip on
+channel 1 for each of them, and **button 1** finishes the line at once - press
+it again to go back to the title.
+
 ## Controls
 
 | | |
 |---|---|
 | **Race** | joypad 1 **up**/**down**/**left**/**right** drives the square |
 | **Title** | **button 1** starts a race |
-| **End screen** | **button 1** goes back to the title screen |
+| **End screen** | **button 1** finishes Susie's line, then goes back to the title |
 | **HOLD** | the console button (PAUSE on the SG-1000 II) freezes / unfreezes |
 | **Pause** | joypad 1 **button 2** taps the same switch |
 
@@ -121,18 +157,25 @@ is joypad 1, whose directions are on port `$DC` bits 0-3 (active low).
 | pattern table | `$0000` (R4 `$00`) - 77 tiles: blank, wall pieces, chequers, 5x7 text font |
 | colour table | `$2000` (R3 `$80`) - 32 bytes of `$F1`, every tile white on black |
 | name table | `$1800` (R2 `$06`) - 32x24 cells, the whole track is redrawn per screen |
-| sprite attributes | `$1B00` (R5 `$36`) - 2 sprites, two rows of 4 bytes |
-| sprite patterns | `$3800` (R6 `$07`) - one solid 8x8 block, the SAT colours it |
+| sprite attributes | `$1B00` (R5 `$36`) - 2 sprites while racing, 20 on an end screen |
+| sprite patterns | `$3800` (R6 `$07`) - one solid 8x8 block for the cars, then the 40 portrait patterns |
 | RAM | `$C000-$C3EF` (the SG-1000 only has 1 KB; the stack lives at `$C3F0`) |
 | frame sync | the VDP status read flag (bit 7) is polled; IRQs stay masked |
-| sound | SN76489 channel 0 only |
+| sound | SN76489 - channel 0 tunes and the lap blip, channel 1 the letter blips, channel 3 the noise thud |
 
 The game logic is one pass per video frame (60 Hz):
 
 ```
 wait for vblank -> read pads -> service pause -> move the square (walls!)
-                -> lap checkpoints -> move Susie -> update the 2 sprites
+                -> lap checkpoints -> move Susie -> update the sprites
+                -> tick the sound (and the typewriter, on an end screen)
 ```
+
+The sound is a frame counter per channel rather than anything clever: each
+cue writes a divider and a length, and a tick routine counts it down and
+mutes the channel.  The tunes are streams of `frames, divider low, divider
+high`, three bytes a note, ending on a zero frame count.  The divider is
+`3579545 / (32 * Hz)`, e.g. `143` for G5.
 
 Both cars are 8x8 squares built from a single all-`$FF` sprite pattern; the
 player's sprite attribute is `$0F` (white), Susie's is `$0D` (light magenta).
@@ -161,7 +204,7 @@ gfx.asm             generated tile patterns, the track map and the title text
 deltarune.sg        built cartridge image (16 KB)
 tools/gen_gfx.py    the artwork: wall/chequer tiles, 5x7 font, track layout
 tools/sg1000.py     tiny SG-1000 emulator (Z80 + TMS9918A + SN76489)
-tools/capture.py    runs the ROM headless: 40 checks + screenshots/gif
+tools/capture.py    runs the ROM headless: 61 checks + screenshots/gif
 tools/crosscheck.py the same ROM on the real Gearsystem core, byte for byte
 tools/gsrun.cpp     cross-check harness: wraps the Gearsystem core
 screenshots/        what the emulator captured
@@ -177,18 +220,26 @@ python3 tools/gen_gfx.py --preview    # also dumps PNG previews to /tmp
 ```
 
 `tools/capture.py` boots the ROM in the bundled emulator, plays real laps on
-autopilot and asserts what happened - 40 checks, including the exact title
+autopilot and asserts what happened - 61 checks, including the exact title
 text in the name table, the wall and middle square tiles, the chequers, the
 sprite positions and colours, three laps to win, Susie winning if you idle,
-the lap checkpoints refusing to score a wiggle over the line, and both pause
-buttons:
+the lap checkpoints refusing to score a wiggle over the line, both pause
+buttons, and the whole of the dialogue box: its walls over the bottom
+straight, the text it types, the force-finish on button 1, the twenty sprite
+cells of the portrait, the one white eye cell, and that the winning and
+losing portraits are different pictures:
 
 ```
 $ make check
 ...
-40 checks, 0 failed
+61 checks, 0 failed
 screenshots in screenshots
 ```
+
+The sound is checked in Hz: the wall thud has to be white noise on channel 3
+and be over in a few frames, the letter blips have to land on channel 1
+around 1.2 kHz, and the win tune has to climb note by note - `<Hz>` values
+taken straight out of the emulated PSG registers, not from a log.
 
 ### Cross-checking against Gearsystem
 
@@ -223,7 +274,19 @@ pause on the real core
   ok   without a pause the car drives on (x=60)
   ok   HOLD freezes it mid-straight (x=100)
   ok   joypad button 2 freezes it as well (x=100)
+the dialogue box on the real core
+  ok   the script loses the race (2250 frames)
+  ok   the lose screen is identical pixel for pixel
+  ok   and so is VRAM, portrait patterns included
+  ok   Susie's portrait is on the left of the box [143, 24, 52, 13, ...]
+  ok   and her three lines are typed out there [...]
 ```
+
+The end screen check is driven wall to wall - every leg of the script runs
+until the square is stopped by a wall - so it does not depend on a frame of
+pad-injection timing, and Susie's laps depend only on the frame count.  The
+portrait has to come out of the real core's sprite renderer byte for byte the
+same as out of ours, which is the whole point of the exercise.
 
 ### What is different from the real minigame
 

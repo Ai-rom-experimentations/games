@@ -23,6 +23,7 @@ from sg1000 import SG1000, load_rom, P1_UP, P1_DOWN, P1_LEFT, P1_RIGHT, P1_B1, P
 # ---- RAM map (keep in sync with deltarune.asm) ---------------------------
 R_STATE, R_PAD1, R_PAUSED = 0, 1, 3
 R_PX, R_PY, R_RX, R_RY, R_SEG, R_CP, R_LAPS, R_RLAPS = 7, 8, 9, 10, 11, 12, 13, 14
+R_DLG = 22                              # 0 off, 1 typing, 2 finished
 
 TITLE, RACE, WON, LOST = 0, 1, 2, 3
 
@@ -40,6 +41,21 @@ FINISH_RIGHT = FINISH_X + 16
 HUD1 = (12, 9)
 HUD2 = (11, 12)
 CAR = 8                                  # both squares are 8x8
+
+# ---- the dialogue box and the portrait (keep in sync with gfx.asm) ------
+DLG_T, DLG_B = 17, 23                    # the box overwrites rows 17..23
+DLG_X, DLG_XR = OUT_L, OUT_R
+DLG_TEXT = (8, 18, 20, 22)               # the three text rows
+PORTRAIT_BASE = 32
+PORTRAIT_SAT = 0x1B00
+PORTRAIT_PATS = 0x3800 + PORTRAIT_BASE * 8
+PORTRAIT_BYTES = 40 * 8
+PORTRAIT_Y, PORTRAIT_X = 143, 24
+DLG_WIN1 = "SUSIE: HOW THE HECK..."
+DLG_WIN2 = "ALRIGHT, WE'RE DONE."
+DLG_LOSE1 = "SUSIE: MAN, IT'S LIKE"
+DLG_LOSE2 = "YOU'RE NOT EVEN"
+DLG_LOSE3 = "LOOKING AT THE SCREEN."
 
 
 def hold(emu, frames, p1=0, p2=0):
@@ -181,15 +197,16 @@ def main():
            "the sprite pattern is a solid 8x8 block")
 
     print("walls stop the square")
-    bump = 0
+    thud = 0
     for _ in range(40):                              # straight into the middle
         emu.set_pads(p1=P1_UP)
         emu.run_frame()
-        if emu.psg.vol[0] < 15:
-            bump = emu.psg.tone_hz(0)
+        if emu.psg.vol[3] < 15:
+            thud += 1
     chk.ok(emu.ram(R_PY) >= IN_B * 8 + 1 and emu.ram(R_PX) == px,
            "the middle square blocks a square driving up (y=%d)" % emu.ram(R_PY))
-    chk.ok(abs(bump - 113) < 3, "hitting it bumps (%d Hz)" % round(bump))
+    chk.ok(thud > 0 and emu.psg.tone[3] & 0x04, "hitting it thuds (white noise on channel 3)")
+    chk.ok(thud <= 4, "and the thud is short (%d frames)" % thud)
     hold(emu, 120, p1=P1_RIGHT)                      # and into the outer wall
     chk.ok(emu.ram(R_PX) == 238 and emu.ram(R_PY) >= IN_B * 8,
            "the outer wall stops the square too (x=%d)" % emu.ram(R_PX))
@@ -218,10 +235,79 @@ def main():
     chk.ok({0, 1, 2, 3} <= laps_seen, "three clockwise laps are counted %s" % sorted(laps_seen))
     chk.ok(hud1 == "LAP 2/3", "the infield counts the laps (%r)" % hud1)
     chk.ok(emu.ram(R_STATE) == WON, "the third lap wins the race")
-    chk.ok(text(emu, 12, 9, 7) == "YOU WIN", "the win screen says YOU WIN")
-    chk.ok(text(emu, 13, 11, 6) == "3 LAPS" and text(emu, 12, 14, 7) == "PRESS 1",
-           "and offers another go")
+    chk.ok(text(emu, 13, 9, 7) == "YOU WIN", "the win screen says YOU WIN")
+    chk.ok(text(emu, 13, 13, 7) == "PRESS 1", "and offers another go")
+
+    print("the dialogue box")
+    chk.ok(tile(emu, 15, DLG_T) == T_TOP and tile(emu, 15, DLG_B) == T_BOTTOM,
+           "a box covers the bottom of the screen (rows %d..%d)" % (DLG_T, DLG_B))
+    chk.ok(tile(emu, DLG_X, 20) == T_LEFT and tile(emu, DLG_XR, 20) == T_RIGHT,
+           "with a white outline down its sides")
+    chk.ok(all(tile(emu, c, 20) == T_BLANK for c in range(3, 30)),
+           "and black inside, over what was the bottom straight")
+    chk.ok(emu.ram(R_DLG) == 1, "Susie's line starts typing itself out")
+    typing = text(emu, DLG_TEXT[0], DLG_TEXT[1], 6)
+    chk.ok(len(typing.strip()) > 0, "one letter at a time (%r)" % typing.strip())
+    hold(emu, 2, p1=P1_B1)                           # hurry it up
+    hold(emu, 2)
+    chk.ok(emu.ram(R_DLG) == 2 and text(emu, DLG_TEXT[0], DLG_TEXT[1], 22) == DLG_WIN1,
+           "button 1 finishes the line: %r" % text(emu, DLG_TEXT[0], DLG_TEXT[1], 22))
+    chk.ok(text(emu, DLG_TEXT[0], DLG_TEXT[2], len(DLG_WIN2)) == DLG_WIN2,
+           "and the next one: %r" % DLG_WIN2)
+    sat_win = bytes(emu.vdp.vram[PORTRAIT_SAT:PORTRAIT_SAT + 81])
+    pats_win = bytes(emu.vdp.vram[PORTRAIT_PATS:PORTRAIT_PATS + PORTRAIT_BYTES])
+    chk.ok(list(sat_win[0:4]) == [PORTRAIT_Y, PORTRAIT_X, PORTRAIT_BASE, 0x0D],
+           "Susie's portrait sits on the left of the box %s" % list(sat_win[0:4]))
+    chk.ok(sat_win[80] == 0xD0, "and the sprite table ends after it")
+    chk.ok(sum(1 for i in range(0, 80, 4) if sat_win[i] != 0xD0) == 20,
+           "20 sprites: a 4x5 grid of cells")
+    white = [i for i in range(0, 80, 4) if sat_win[i + 3] == 0x0F]
+    eye = 9 * 4                            # row 2, column 1 of the 4x5 grid
+    chk.ok(white == [eye] and sat_win[eye + 2] == PORTRAIT_BASE + 9,
+           "the eye cell (%d) is the one white cell of the portrait %s" % (eye // 4, white))
+    chk.ok(pats_win != bytes(PORTRAIT_BYTES), "the portrait patterns are uploaded to $3800+")
+    glyphs = range(TILE_FONT, TILE_FONT + 40)
+    outside = [(c, 10) for c in range(24, 31)] + [(c, 9) for c in range(20, 23)]
+    chk.ok(not [1 for c, r in outside if tile(emu, c, r) in glyphs],
+           "the infield text stays inside the middle square")
     emu.screenshot().save(os.path.join(args.out, "win.png"))
+
+    print("the little tunes")
+    emu2 = boot(rom)
+    notes = []
+    emu2.set_pads(p1=P1_B1)
+    for _ in range(14):
+        emu2.run_frame()
+        if emu2.psg.vol[0] < 15:
+            hz = round(emu2.psg.tone_hz(0))
+            if not notes or notes[-1] != hz:
+                notes.append(hz)
+    emu2.set_pads()
+    chk.ok(len(notes) >= 2 and notes[-1] > notes[0],
+           "the race starts with a rising two note sting %s" % notes)
+    emu3 = boot(rom)
+    start_race(emu3)
+    blips = 0
+    for f in range(1500):
+        emu3.set_pads(p1=steer(emu3.ram(R_PX), emu3.ram(R_PY)))
+        emu3.run_frame()
+        if emu3.ram(R_STATE) != RACE:
+            break
+    blip_hz = None
+    win_notes = []
+    for _ in range(220):
+        emu3.run_frame()
+        if emu3.psg.vol[1] < 15:
+            blips += 1
+            blip_hz = round(emu3.psg.tone_hz(1))
+        if emu3.psg.vol[0] < 15:
+            hz = round(emu3.psg.tone_hz(0))
+            if not win_notes or win_notes[-1] != hz:
+                win_notes.append(hz)
+    chk.ok(blips > 20 and blip_hz and 1000 < blip_hz < 1400,
+           "each letter blips on channel 1 (%d frames at %s Hz)" % (blips, blip_hz))
+    chk.ok(len(win_notes) >= 4 and win_notes[-1] > win_notes[0],
+           "winning plays a rising tune %s" % win_notes)
     frames[0].save(os.path.join(args.out, "gameplay.gif"), save_all=True,
                    append_images=frames[1:], duration=50, loop=0, optimize=True)
 
@@ -247,8 +333,18 @@ def main():
             break
     chk.ok(emu.ram(R_RLAPS) == 3, "Susie gets her three laps (%d frames)" % f)
     chk.ok(emu.ram(R_STATE) == LOST, "and the race is lost")
-    chk.ok(text(emu, 13, 9, 5) == "SUSIE" and text(emu, 14, 10, 4) == "WINS",
-           "the screen says SUSIE WINS")
+    chk.ok(text(emu, 12, 9, 10) == "SUSIE WINS", "the screen says SUSIE WINS")
+    hold(emu, 2, p1=P1_B1)                           # skip the typing
+    hold(emu, 2)
+    chk.ok(text(emu, DLG_TEXT[0], DLG_TEXT[1], len(DLG_LOSE1)) == DLG_LOSE1,
+           "she says %r" % DLG_LOSE1)
+    chk.ok(text(emu, DLG_TEXT[0], DLG_TEXT[2], len(DLG_LOSE2)) == DLG_LOSE2,
+           "then %r" % DLG_LOSE2)
+    chk.ok(text(emu, DLG_TEXT[0], DLG_TEXT[3], len(DLG_LOSE3)) == DLG_LOSE3,
+           "then %r" % DLG_LOSE3)
+    chk.ok(emu.vdp.vram[PORTRAIT_SAT + 2] == PORTRAIT_BASE + 20,
+           "the losing portrait is a second expression (pattern %d)"
+           % emu.vdp.vram[PORTRAIT_SAT + 2])
     emu.screenshot().save(os.path.join(args.out, "lose.png"))
 
     chk.ok(not emu.errors, "no stray writes to the cartridge ROM")

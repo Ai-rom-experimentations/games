@@ -19,6 +19,13 @@ The screen is the whole race track, in 8x8 tiles (32x24 = 256x192 pixels):
 So the drivable lane is the ring between the outside wall and the middle
 square: x 10..245, y 10..181, minus the middle block (x 64..191, y 56..135).
 
+There is also a second name table, `dialog_map`, which is the same track with
+the bottom of the screen replaced by a Deltarune style dialogue box (rows
+17..23) - that is what the end screens use.  Susie's portrait is drawn with
+sprites, not tiles, because Graphics I gives a whole 8 scanline band a single
+foreground colour and the portrait has to be purple while the text stays
+white.  The portrait is 4x5 sprites (32x40 pixels) in two expressions.
+
 Tile map (TMS9918A "Graphics I" pattern table, 8x8 monochrome tiles):
 
       0        blank
@@ -137,6 +144,28 @@ FINISH_ROW = 17                 # first row under the middle square
 HUD1_COL, HUD1_ROW = 12, 9      # "LAP n/3"
 HUD2_COL, HUD2_ROW = 11, 12     # "SUSIE n/3"
 
+# the dialogue box at the bottom of the end screens (rows 17..23)
+BOX_L, BOX_R = OUT_L, OUT_R      # aligned with the track's outer wall
+BOX_T, BOX_B = 17, 23
+PORTRAIT_X, PORTRAIT_Y = 24, 144  # top left corner of the portrait
+PORTRAIT_W, PORTRAIT_H = 32, 40   # 4 x 5 sprites
+DLG_COL = 8                       # text starts right of the portrait
+DLG_ROWS = (18, 20, 22)
+
+# The dialogue is quoted verbatim from Deltarune Chapter 3 (Green Room, left
+# TV): winning Kris gets "Kris, you won!" from Ralsei and Susie's
+# "How the heck... alright, we're done."; losing three times gets
+# "Man, it's like you're not even looking at the screen."
+DLG_WIN = [
+    "SUSIE: HOW THE HECK...",
+    "ALRIGHT, WE'RE DONE.",
+]
+DLG_LOSE = [
+    "SUSIE: MAN, IT'S LIKE",
+    "YOU'RE NOT EVEN",
+    "LOOKING AT THE SCREEN.",
+]
+
 # title screen, drawn over the same track
 TITLE_LINES = [
     (11, 8, "DELTARUNE"),
@@ -146,6 +175,145 @@ TITLE_LINES = [
     (13, 14, "3 LAPS"),
     (10, 15, "PRESS 1: RACE"),
 ]
+
+
+# --------------------------------------------------------------------------
+# Susie's portrait: 32x40 pixels, drawn with sprites so it can be purple.
+# Each 8x8 sprite carries one colour, so the art is split into 4x5 cells and
+# every cell is declared magenta or white here.  Pixels of the other colour
+# simply do not exist (they read as the black of the box).
+# --------------------------------------------------------------------------
+MAGE, WHITE = 1, 2               # 1 = magenta ($0D), 2 = white ($0F)
+
+PORTRAIT_CELLS = [
+    [MAGE, MAGE, MAGE, MAGE],    # hair
+    [MAGE, MAGE, MAGE, MAGE],    # hair and the fringe
+    [MAGE, WHITE, MAGE, MAGE],   # the one eye her hair does not cover
+    [MAGE, MAGE, MAGE, MAGE],    # the grin (a hole in the magenta)
+    [MAGE, MAGE, MAGE, MAGE],    # jaw, neck, shoulders
+]
+PORTRAIT_COLOUR = {MAGE: 0x0D, WHITE: 0x0F}
+
+
+def _pv(x, y):
+    return 0 <= x < PORTRAIT_W and 0 <= y < PORTRAIT_H
+
+
+def prect(img, x0, y0, x1, y1, v):
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            if _pv(x, y):
+                img[y][x] = v
+
+
+def pellipse(img, cx, cy, rx, ry, v):
+    for y in range(cy - ry, cy + ry + 1):
+        for x in range(cx - rx, cx + rx + 1):
+            dx = (x - cx) / float(rx)
+            dy = (y - cy) / float(ry)
+            if dx * dx + dy * dy <= 1.0 and _pv(x, y):
+                img[y][x] = v
+
+
+def ppoly(img, pts, v):
+    ys = [pt[1] for pt in pts]
+    for y in range(min(ys), max(ys) + 1):
+        xs = []
+        for i in range(len(pts)):
+            x0, y0 = pts[i]
+            x1, y1 = pts[(i + 1) % len(pts)]
+            if y0 == y1:
+                continue
+            if min(y0, y1) <= y < max(y0, y1):
+                xs.append(x0 + (y - y0) * (x1 - x0) / (y1 - y0))
+        if len(xs) >= 2:
+            prect(img, int(round(min(xs))), y, int(round(max(xs))), y, v)
+
+
+def susie_portrait(expression):
+    """0 = sulking (Kris won), 1 = taunting (Susie won).
+
+    Two colours plus the black of the box, so the portrait is a solid magenta
+    silhouette - a wide head with a zigzag of spikes, a neck and shoulders -
+    with the face read out of the black holes and the one white cell: a big
+    eye with a small pupil, and the mouth cut out of the silhouette.  Both
+    expressions share the shapes and differ in the eyelid and the mouth,
+    which is about all 32x40 pixels in two colours can carry.
+    """
+    img = [[0] * PORTRAIT_W for _ in range(PORTRAIT_H)]
+
+    # ---- the head: a wide rounded block ...
+    prect(img, 1, 8, 30, 34, MAGE)
+    prect(img, 2, 6, 29, 8, MAGE)
+    prect(img, 4, 5, 27, 6, MAGE)
+    for x, y in ((2, 6), (29, 6), (1, 34), (30, 34)):
+        img[y][x] = 0
+    # ---- ... with a zigzag of hair spikes along the top
+    peaks = (3, 11, 19, 27)
+    for x in range(PORTRAIT_W):
+        top = min(abs(x - px) for px in peaks) + 1       # 1 on a peak, 5 in a valley
+        prect(img, x, top, x, 9, MAGE)
+
+    # ---- the neck and a hint of her jacket
+    prect(img, 12, 33, 20, 37, MAGE)
+    prect(img, 1, 38, 30, 39, MAGE)
+
+    # ---- the big eye.  It fills its cell (x 8..15, y 16..23) so that the
+    #      black left over in the cell is just the corners of the eye.
+    for y in range(16, 24):
+        for x in range(8, 16):
+            img[y][x] = 0
+    if expression == 1:                                  # taunting: wide open
+        prect(img, 9, 17, 14, 22, WHITE)
+        for x, y in ((9, 17), (14, 17), (9, 22), (14, 22)):
+            img[y][x] = 0
+        prect(img, 11, 19, 12, 20, 0)                    # the pupil
+    else:                                                # sulking: half lidded
+        prect(img, 9, 19, 14, 22, WHITE)
+        for x, y in ((9, 19), (14, 19), (9, 22), (14, 22)):
+            img[y][x] = 0
+        prect(img, 11, 20, 12, 21, 0)                    # the pupil, looking down
+
+    # ---- the mouth, cut out of the silhouette (cells x 8..23, y 24..31)
+    if expression == 1:                                  # taunting: open maw
+        prect(img, 10, 27, 21, 30, 0)
+        prect(img, 12, 26, 19, 26, 0)
+    else:                                                # sulking: a tight frown
+        prect(img, 12, 28, 19, 28, 0)
+        prect(img, 11, 29, 12, 29, 0)
+        prect(img, 19, 29, 20, 29, 0)
+
+    return img
+
+
+def portrait_patterns(img):
+    """20 patterns, row major, one per sprite cell."""
+    out = []
+    for r in range(PORTRAIT_H // 8):
+        for c in range(PORTRAIT_W // 8):
+            colour = PORTRAIT_CELLS[r][c]
+            pat = []
+            for y in range(8):
+                bits = 0
+                for x in range(8):
+                    if img[r * 8 + y][c * 8 + x] == colour:
+                        bits |= 0x80 >> x
+                pat.append(bits)
+            out.append(pat)
+    return out
+
+
+def portrait_sat(base_pattern):
+    """The sprite attribute table entries: y, x, pattern, colour (20 then $D0)."""
+    rows = []
+    for r in range(PORTRAIT_H // 8):
+        for c in range(PORTRAIT_W // 8):
+            rows.append(PORTRAIT_Y + r * 8 - 1)
+            rows.append(PORTRAIT_X + c * 8)
+            rows.append(base_pattern + r * 4 + c)
+            rows.append(PORTRAIT_COLOUR[PORTRAIT_CELLS[r][c]])
+    rows.append(0xD0)
+    return rows
 
 
 # --------------------------------------------------------------------------
@@ -230,9 +398,30 @@ def build():
             else:
                 track.put(col, row, T_CHK_A if a else T_CHK_B)
 
+    # ---- the same track with a dialogue box across the bottom
+    dialog = Screen()
+    for row in range(24):
+        for col in range(32):
+            dialog.cells[row][col] = track.cells[row][col]
+    for row in range(BOX_T, BOX_B + 1):
+        for col in range(BOX_L, BOX_R + 1):
+            dialog.put(col, row, T_BLANK)
+    for col in range(BOX_L, BOX_R + 1):
+        dialog.put(col, BOX_T, T_HT)
+        dialog.put(col, BOX_B, T_HB)
+    for row in range(BOX_T, BOX_B + 1):
+        dialog.put(BOX_L, row, T_VL)
+        dialog.put(BOX_R, row, T_VR)
+    dialog.put(BOX_L, BOX_T, T_TL)
+    dialog.put(BOX_R, BOX_T, T_TR)
+    dialog.put(BOX_L, BOX_B, T_BL)
+    dialog.put(BOX_R, BOX_B, T_BR)
+
     return {
         "tiles": tiles,
         "T_BLANK": T_BLANK,
+        "dialog": dialog,
+        "portrait": (susie_portrait(0), susie_portrait(1)),
         "T_FONT": T_FONT,
         "font_tile": font_tile,
         "track": track,
@@ -281,6 +470,37 @@ def emit_asm(g):
     for i in range(0, len(tb), 32):
         a("        db %s   ; row %d" % (",".join("%d" % b for b in tb[i:i + 32]), i // 32))
     a("")
+    a("dialog_map:")
+    db = g["dialog"].bytes()
+    for i in range(0, len(db), 32):
+        a("        db %s   ; row %d" % (",".join("%d" % b for b in db[i:i + 32]), i // 32))
+    a("")
+    a("; ---- dialogue: col, row, zero terminated line, $FF ends the box ----")
+    a("dlg_win:")
+    for i, line in enumerate(DLG_WIN):
+        a('        db %d, %d, "%s", 0' % (DLG_COL, DLG_ROWS[i], line))
+    a("        db 0xFF")
+    a("dlg_lose:")
+    for i, line in enumerate(DLG_LOSE):
+        a('        db %d, %d, "%s", 0' % (DLG_COL, DLG_ROWS[i], line))
+    a("        db 0xFF")
+    a("")
+    a("; ---- Susie's portrait: 4x5 sprites per expression, magenta and white ----")
+    a("PORTRAIT_BASE equ 32           ; sprite pattern index of the portrait")
+    a("portrait_data:")
+    for expr, name in ((0, "sulking"), (1, "taunting")):
+        pats = portrait_patterns(susie_portrait(expr))
+        a("        ; expression %d - Susie %s" % (expr, name))
+        for i, t in enumerate(pats):
+            a("        db %s   ; cell %d" % (",".join("0x%02X" % b for b in t), i))
+    a("")
+    a("; ready made sprite attribute tables for the two expressions")
+    for expr, name in ((0, "sulking"), (1, "taunting")):
+        a("portrait_sat_%d:                 ; %s" % (expr, name))
+        sat = portrait_sat(32 + expr * 20)
+        for i in range(0, len(sat), 4):
+            a("        db %s" % ",".join("0x%02X" % b for b in sat[i:i + 4]))
+    a("")
     a("; ---- title text: col, row, zero terminated text, $FF marks the end ----")
     a("title_text:")
     for col, row, text in TITLE_LINES:
@@ -309,6 +529,19 @@ def render(screen, tiles, out_path):
     return img
 
 
+def blit_portrait(img, art):
+    """Draw a portrait image over a rendered screen, cell colour and all."""
+    px = img.load()
+    for r in range(PORTRAIT_H // 8):
+        for c in range(PORTRAIT_W // 8):
+            colour = PORTRAIT_COLOUR[PORTRAIT_CELLS[r][c]]
+            rgb = (255, 255, 255) if colour == 0x0F else (255, 0, 255)
+            for y in range(8):
+                for x in range(8):
+                    if art[r * 8 + y][c * 8 + x] == PORTRAIT_CELLS[r][c]:
+                        px[PORTRAIT_X + c * 8 + x, PORTRAIT_Y + r * 8 + y] = rgb
+
+
 def preview(outdir):
     os.makedirs(outdir, exist_ok=True)
     g = build()
@@ -335,6 +568,20 @@ def preview(outdir):
     dr.rectangle([140, 155, 147, 162], fill=(255, 255, 255))     # the player
     dr.rectangle([100, 155, 107, 162], fill=(255, 0, 255))       # Susie
     img.save(os.path.join(outdir, "race.png"))
+
+    for expr, lines, result, name in ((0, DLG_WIN, "YOU WIN", "win"),
+                                      (1, DLG_LOSE, "SUSIE WINS", "lose")):
+        end = Screen()
+        for row in range(24):
+            for col in range(32):
+                end.cells[row][col] = g["dialog"].cells[row][col]
+        end.text(13 if len(result) < 10 else 12, 9, result, font_tile)
+        end.text(13, 13, "PRESS 1", font_tile)
+        for i, line in enumerate(lines):
+            end.text(DLG_COL, DLG_ROWS[i], line, font_tile)
+        im = render(end, tiles, os.path.join(outdir, "%s.png" % name))
+        blit_portrait(im, g["portrait"][expr])
+        im.save(os.path.join(outdir, "%s.png" % name))
     print("wrote previews to", outdir)
 
 
