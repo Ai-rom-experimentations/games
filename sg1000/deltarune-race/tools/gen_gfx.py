@@ -176,7 +176,7 @@ DLG_KNIGHT_WIN = [
 ]
 DLG_KNIGHT_LOSE = [
     "HEH...",
-    "AS EXPECTED...",
+    "AS EXPECTED",
 ]
 DLG_TEXT_COLS = 22                # columns between the portrait and the wall
 

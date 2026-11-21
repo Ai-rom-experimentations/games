@@ -475,7 +475,7 @@ def main():
     for _ in range(120):
         emu.run_frame()
     chk.ok(wtext(emu, 16, 18, 6) == "HEH...", "he says HEH...")
-    chk.ok(wtext(emu, 12, 20, 14) == "AS EXPECTED...", "then AS EXPECTED...")
+    chk.ok(wtext(emu, 13, 20, 11) == "AS EXPECTED", "then AS EXPECTED")
     emu.screenshot().save(os.path.join(args.out, "knight-lose.png"))
 
     print("and then he swoons you")

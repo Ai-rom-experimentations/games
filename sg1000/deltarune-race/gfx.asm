@@ -192,7 +192,7 @@ dlg_knight_win:
         db 0xFF
 dlg_knight_lose:
         db 16, 18, "HEH...", 0
-        db 12, 20, "AS EXPECTED...", 0
+        db 13, 20, "AS EXPECTED", 0
         db 0xFF
 
 ; ---- portraits: 4x5 sprites per expression ----
