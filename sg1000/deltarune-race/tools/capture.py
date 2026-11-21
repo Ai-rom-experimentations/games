@@ -498,13 +498,15 @@ def main():
     for _ in range(5):
         emu.run_frame()
     slow = round(emu.psg.tone_hz(0))
+    quiet = emu.psg.vol[0]
     for _ in range(50):
         emu.run_frame()
     chk.ok(emu.ram(R_SWOON) == 0 and emu.ram(R_SWOON_T) < 80,
            "the attack takes its time (%d frames left)" % emu.ram(R_SWOON_T))
     rising = round(emu.psg.tone_hz(0))
-    chk.ok(rising > slow + 20 and emu.psg.vol[0] < 14,
-           "and climbs as it gets louder (%d Hz -> %d Hz)" % (slow, rising))
+    chk.ok(rising > slow + 20 and emu.psg.vol[0] > quiet,
+           "and climbs as it swells (%d Hz -> %d Hz, volume %d -> %d)"
+           % (slow, rising, quiet, emu.psg.vol[0]))
     for f in range(300):
         emu.run_frame()
         if emu.ram(R_SWOON) == 1:

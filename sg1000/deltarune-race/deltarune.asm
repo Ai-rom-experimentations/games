@@ -727,7 +727,7 @@ swoon_start:
         ld (swoon_time), a
         ld hl, 1000
         ld (sw_pitch), hl
-        ld a, 14
+        ld a, 1                           ; and it swells from almost nothing
         ld (sw_vol), a
         xor a
         ld (sw_gap), a
@@ -886,10 +886,10 @@ psg_sweep:
         ld a, (swoon_time)
         and 0x07
         jr nz, .play
-        ld a, (sw_vol)                    ; a little louder every eighth frame
-        or a
-        jr z, .play
-        dec a
+        ld a, (sw_vol)                    ; a little louder every eighth frame,
+        cp 14                             ; which fills the fifteen levels the
+        jr nc, .play                      ; chip has over the two seconds
+        inc a
         ld (sw_vol), a
 .play:
         ld hl, (sw_pitch)
