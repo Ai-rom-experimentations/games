@@ -21,6 +21,8 @@
  *   b  hold button 1        -  release button 1
  *   u  pad 1 up             d  pad 1 down
  *   U  pad 2 up             D  pad 2 down
+ *   p  press console HOLD (Key_Start, sends an NMI)   P  release it
+ *   q  hold pad 1 button 2                            Q  release it
  *   n  nothing held
  *
  * e.g. 'n'*20 + 'b'*20 + 'n'*1200 starts a one player match and lets the CPU
@@ -98,12 +100,26 @@ static void apply_script(GearsystemCore& core, char key)
             core.KeyPressed(Joypad_2, Key_Down);
             core.KeyReleased(Joypad_2, Key_Up);
             break;
+        case 'p':
+            core.KeyPressed(Joypad_1, Key_Start);
+            break;
+        case 'q':
+            core.KeyPressed(Joypad_1, Key_2);
+            break;
+        case 'Q':
+            core.KeyReleased(Joypad_1, Key_2);
+            break;
+        case 'P':
+            core.KeyReleased(Joypad_1, Key_Start);
+            break;
         case 'n':
             core.KeyReleased(Joypad_1, Key_1);
             core.KeyReleased(Joypad_1, Key_Up);
             core.KeyReleased(Joypad_1, Key_Down);
             core.KeyReleased(Joypad_2, Key_Up);
             core.KeyReleased(Joypad_2, Key_Down);
+            core.KeyReleased(Joypad_1, Key_Start);
+            core.KeyReleased(Joypad_1, Key_2);
             break;
         default:
             break;

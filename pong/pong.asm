@@ -62,6 +62,7 @@ paused      equ ram+18
 tmp_ones    equ ram+19
 tmp_tens    equ ram+20
 blink       equ ram+21
+prev_b2     equ ram+22         ; button 2 edge detector
 
 ; ---- name table addresses used at run time -------------------------------
 SCORE1_ONES equ 0x1800 + 1*32 + 10
@@ -80,7 +81,7 @@ MARK_ROW14  equ 0x1800 + 14*32 + 10
         reti                          ; the VDP interrupt stays masked
 
         ds 0x0066 - $
-        jp nmi_handler                ; PAUSE button on the console
+        jp nmi_handler                ; console HOLD / PAUSE button
 
 ; ==========================================================================
 ;  start up
@@ -99,6 +100,7 @@ boot:
         ld (menu_sel),a
         ld (mode),a
         ld (prev1),a
+        ld (prev_b2),a
         call title_enter
         jp main_loop
 
@@ -138,7 +140,8 @@ wait_vblank:
         jr z, wait_vblank
         ret
 
-; while paused the ball blinks, so the freeze is obvious
+; while paused the ball blinks, so the freeze is obvious (HOLD on the
+; console or button 2 on joypad 1 toggles it, see check_pause)
 pause_blink:
         ld a, (blink)
         inc a
@@ -162,11 +165,32 @@ nmi_handler:
         retn
 
 check_pause:
+        ; ---- button 2 on joypad 1 toggles pause as well.  The SG-1000 pad
+        ; only has two buttons and button 1 is the menu/start button, so
+        ; button 2 is the natural second switch - and emulator overlays that
+        ; draw a HOLD button sometimes wire it to a pad button.
+        ld a, (pad1)
+        and 0x20                       ; button 2
+        ld b, a
+        ld a, (prev_b2)
+        xor b
+        and b                          ; 1 on the frame button 2 goes down
+        jr z, .hold
+        call pause_toggle
+.hold:
+        ld a, b
+        ld (prev_b2), a
+        ; ---- the console HOLD button (labelled PAUSE on the SG-1000 II)
+        ; raises an NMI; nmi_handler counts it here
         ld a, (nmi_req)
         or a
         ret z
         xor a
         ld (nmi_req), a
+        ; fall through
+
+pause_toggle:
+        xor a
         ld (sfx_time), a               ; stop whatever blip is playing
         ld a, 0x9f
         out (PSG), a

@@ -27,7 +27,10 @@ banking, no BIOS.
   paddle: it waits near the centre until the ball crosses the half way
   line, then follows it at 2 px/frame with a small dead zone, so steep
   shots beat it.
-* The console's PAUSE button freezes the game (the ball blinks).
+* The console's HOLD button - labelled **HOLD** on the SG-1000, PAUSE on the
+  SG-1000 II - freezes the game; the ball blinks so the freeze is obvious.
+  Joypad 1 **button 2** taps the same switch, for emulators whose on-screen
+  overlay does not give you the console button.
 
 ![game over](screenshots/gameover.png)
 
@@ -39,7 +42,8 @@ banking, no BIOS.
 | **Player 2** | joypad 2 **up**/**down** moves the right paddle |
 | **Menu** | up/down selects 1 or 2 players, **button 1** starts |
 | **Game over** | **button 1** goes back to the title screen |
-| **PAUSE** | freezes / unfreezes the game |
+| **HOLD** | the console button (labelled PAUSE on the SG-1000 II) freezes / unfreezes the game |
+| **Pause** | joypad 1 **button 2** taps the same switch |
 
 The two-player mode needs both joypads plugged in.  Up/down for player 2 is
 read from port `$DC` bits 6-7, which is how the SG-1000 wires the second
@@ -108,7 +112,7 @@ gfx.asm             generated tile patterns + the two name tables
 pong.sg             built cartridge image (16 KB)
 tools/gen_gfx.py    the artwork: 5x7 font, 7-segment digits, court layout
 tools/sg1000.py     tiny SG-1000 emulator (Z80 + TMS9918A + SN76489)
-tools/capture.py    runs the ROM headless: 14 checks + screenshots/gif
+tools/capture.py    runs the ROM headless: 18 checks + screenshots/gif
 tools/gsrun.cpp     cross-check harness: runs the ROM on the Gearsystem core
 screenshots/        what the emulator captured
 ```
@@ -129,6 +133,11 @@ with two "players" on autopilot and asserts what happened:
 $ make check
 boot
   ok   boots to the title screen
+pause
+  ok   button 2 pauses
+  ok   the ball is frozen
+  ok   button 2 resumes
+  ok   the ball moves again
 two player match
   ok   button 1 starts a match
   ok   menu selects two players
@@ -142,7 +151,7 @@ two player match
   ok   no stray writes to the cartridge ROM
   ok   only known I/O ports are touched
 
-14 checks, 0 failed
+18 checks, 0 failed
 ```
 
 It needs `pip install z80 pillow`.  The emulator is deliberately fussy: it
@@ -198,9 +207,16 @@ g++ -std=c++14 -O2 -w -I$GS/src -I$GS/platforms/shared/dependencies/miniz \
 ./gsrun pong.sg out.ppm 1200 "$(python3 -c "print('n'*20+'b'*20+'n'*1200)")" vram.bin
 ```
 
+The script is one character per frame: `b` button 1, `u`/`d` pad 1 up/down,
+`U`/`D` pad 2 up/down, `p` the console HOLD button (it sends the NMI), `q`
+pad 1 button 2, `n` nothing.
+
 It forces the SG-1000 system (no auto-detection), so it renders exactly what
 an SG-1000 cartridge sees, and with `-fsanitize=address` it also catches VDP
-table registers that point outside the 16 KB of VRAM.
+table registers that point outside the 16 KB of VRAM.  Both pause routes
+were checked there as well: `p` freezes the ball (and blinks it) and `q`
+does the same, so the game pauses from the console button and from the
+joypad.
 
 ### Differences from the arcade cabinet
 

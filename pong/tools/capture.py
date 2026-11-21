@@ -18,13 +18,14 @@ except ImportError as exc:
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from sg1000 import (SG1000, load_rom, P1_UP, P1_DOWN, P1_B1,
+from sg1000 import (SG1000, load_rom, P1_UP, P1_DOWN, P1_B1, P1_B2,
                     P2_UP, P2_DOWN)
 
 # RAM map (keep in sync with pong.asm)
 RAM = 0xC000
 R_STATE, R_MODE, R_SCORE1, R_SCORE2 = 0, 1, 3, 4
 R_P1Y, R_P2Y, R_BX, R_BY, R_BDX, R_BDY, R_SERVE = 6, 7, 8, 9, 10, 11, 12
+R_PAUSED = 18
 
 TITLE, PLAY, OVER = 0, 1, 2
 signed = lambda v: v - 256 if v > 127 else v
@@ -89,6 +90,17 @@ def main():
     emu = boot(rom)
     chk.ok(emu.ram(R_STATE) == TITLE, "boots to the title screen")
     emu.screenshot().save(os.path.join(args.out, "title.png"))
+
+    print("pause")
+    hold(emu, 1, p1=P1_B2)                         # tap button 2
+    before = (emu.ram(R_BX), emu.ram(R_BY))
+    hold(emu, 24)
+    chk.ok(emu.ram(R_PAUSED) == 1, "button 2 pauses")
+    chk.ok((emu.ram(R_BX), emu.ram(R_BY)) == before, "the ball is frozen")
+    hold(emu, 1, p1=P1_B2)
+    chk.ok(emu.ram(R_PAUSED) == 0, "button 2 resumes")
+    hold(emu, 24)
+    chk.ok((emu.ram(R_BX), emu.ram(R_BY)) != before, "the ball moves again")
 
     print("two player match")
     select(emu, 2)
