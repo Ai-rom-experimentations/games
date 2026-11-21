@@ -38,8 +38,10 @@ BOX_Y       equ 49             ; and whose top is 49..135 would be inside it
 BOX_YB      equ 136
 
 CAR_W       equ 8
-CAR_STEP    equ 2              ; pixels per frame for the player
-RIVAL_STEP  equ 1              ; Susie is half as fast
+CAR_STEP    equ 4              ; pixels per frame for the player
+CAR_SUB     equ 2              ; ... but moved in steps of this, so that a wall
+CAR_SUBS    equ CAR_STEP / CAR_SUB   ; still stops the square flush against it
+RIVAL_STEP  equ 2              ; Susie is half as fast
 
 CAR_X0      equ 140            ; just right of the chequered line
 CAR_Y0      equ 155            ; middle of the bottom straight
@@ -222,7 +224,12 @@ race_start:
         jp jingle_play
 
 tick_race:
+        ld b, CAR_SUBS                ; the square moves CAR_STEP a frame, in
+.move:                                ; CAR_SUB steps, so no wall is missed
+        push bc
         call move_car
+        pop bc
+        djnz .move
         call check_cp
         ld a, (state)
         dec a
@@ -242,7 +249,7 @@ move_car:
         bit 2, a
         jr z, .not_left
         ld a, (px)
-        sub CAR_STEP
+        sub CAR_SUB
         jr c, .blocked                     ; ran off the byte range
         ld d, a
         ld a, (py)
@@ -261,7 +268,7 @@ move_car:
         bit 3, a
         jr z, .not_right
         ld a, (px)
-        add a, CAR_STEP
+        add a, CAR_SUB
         ld d, a
         ld a, (py)
         ld e, a
@@ -279,7 +286,7 @@ move_car:
         bit 0, a
         jr z, .not_up
         ld a, (py)
-        sub CAR_STEP
+        sub CAR_SUB
         jr c, .hit_up
         ld e, a
         ld a, (px)
@@ -298,7 +305,7 @@ move_car:
         bit 1, a
         jr z, .not_down
         ld a, (py)
-        add a, CAR_STEP
+        add a, CAR_SUB
         ld e, a
         ld a, (px)
         ld d, a
@@ -411,13 +418,20 @@ move_rival:
         or a
         jr nz, .seg1
         ld a, (rx)                          ; bottom straight, heading left
+        cp RIVAL_LINE + 1
+        jr c, .move1                        ; already past the line
         sub RIVAL_STEP
+        cp RIVAL_LINE
+        jr nc, .store1                      ; not over it yet
+        ld (rx), a                          ; that is a lap
+        jp rival_lap
+.move1:
+        sub RIVAL_STEP
+.store1:
         cp RIVAL_LEFT
         jr c, .turn1
         ld (rx), a
-        cp RIVAL_LINE
-        ret nz
-        jp rival_lap
+        ret
 .turn1:
         ld a, RIVAL_LEFT
         ld (rx), a

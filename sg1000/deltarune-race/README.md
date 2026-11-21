@@ -46,11 +46,15 @@ Sources: [TCRF - Deltarune Chapter 3, "Racing Game Visuals"](https://tcrf.net/De
   **chequered finish line** running from the bottom of the middle square to
   the bottom wall.
 * Your square starts on the **right of the finish line** in the bottom
-  straight and drives clockwise.  It moves 2 pixels a frame in whichever of
-  the four directions you hold, and walls (outer and middle) stop it dead
-  with a bump - the same bump the real minigame plays when Kris' hands stop.
+  straight and drives clockwise.  It moves **4 pixels a frame** in whichever
+  of the four directions you hold - taken as two 2 pixel steps, so a wall
+  still stops it flush against itself - and walls (outer and middle) stop it
+  dead with a bump, the same bump the real minigame plays when Kris' hands
+  stop.  A tidy lap is under three seconds and the race is over in about
+  eight, or fifteen if you keep hitting things, because that is when Susie
+  gets her third lap.
 * **Susie** races you.  She is the magenta square, takes the outside lane at
-  half your speed, drives the same clockwise lap and counts her laps at the
+  half your speed (2 pixels a frame), drives the same clockwise lap and counts her laps at the
   same line.  Beat her over three laps and she sulks: the screen shows
   `YOU WIN`.  If she gets her three laps first, Kris loses and the screen
   shows `SUSIE WINS`.
@@ -193,8 +197,12 @@ line are just tiles 1-12 placed by `tools/gen_gfx.py`:
 
 Collision is a plain rectangle test against `x 57..191` / `y 49..135` (the
 middle square grown by the car's 7 pixel extent) plus the outer limits
-`x 10..238`, `y 10..174`.  Movement is 2 px/frame, so a corner bump can
-never tunnel: the step is shorter than the wall.
+`x 10..238`, `y 10..174`.  The square moves 4 px a frame but in two 2 px
+steps, each one tested, so it comes to rest flush against the wall instead of
+stopping up to a step short of it, and a corner bump can never tunnel: the
+step is shorter than the wall.  The pace is two constants at the top of
+`deltarune.asm`, `CAR_STEP` (4) and `RIVAL_STEP` (2); Susie counts her laps
+by crossing her line, not by landing on it, so her step can be anything.
 
 ### Files
 
@@ -204,7 +212,7 @@ gfx.asm             generated tile patterns, the track map and the title text
 deltarune.sg        built cartridge image (16 KB)
 tools/gen_gfx.py    the artwork: wall/chequer tiles, 5x7 font, track layout
 tools/sg1000.py     tiny SG-1000 emulator (Z80 + TMS9918A + SN76489)
-tools/capture.py    runs the ROM headless: 61 checks + screenshots/gif
+tools/capture.py    runs the ROM headless: 64 checks + screenshots/gif
 tools/crosscheck.py the same ROM on the real Gearsystem core, byte for byte
 tools/gsrun.cpp     cross-check harness: wraps the Gearsystem core
 screenshots/        what the emulator captured
@@ -220,19 +228,20 @@ python3 tools/gen_gfx.py --preview    # also dumps PNG previews to /tmp
 ```
 
 `tools/capture.py` boots the ROM in the bundled emulator, plays real laps on
-autopilot and asserts what happened - 61 checks, including the exact title
+autopilot and asserts what happened - 64 checks, including the exact title
 text in the name table, the wall and middle square tiles, the chequers, the
 sprite positions and colours, three laps to win, Susie winning if you idle,
 the lap checkpoints refusing to score a wiggle over the line, both pause
 buttons, and the whole of the dialogue box: its walls over the bottom
 straight, the text it types, the force-finish on button 1, the twenty sprite
 cells of the portrait, the one white eye cell, and that the winning and
-losing portraits are different pictures:
+losing portraits are different pictures, and that the square really does move
+4 pixels a frame:
 
 ```
 $ make check
 ...
-61 checks, 0 failed
+64 checks, 0 failed
 screenshots in screenshots
 ```
 

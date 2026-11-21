@@ -40,7 +40,8 @@ def lose_script():
     core - which makes the lose screen (portrait, box and all) safe to
     compare pixel for pixel.  The frames after that let the text type out.
     """
-    leg = "u" * 70 + "l" * 140 + "u" * 300 + "r" * 460 + "d" * 300 + "l" * 460
+    leg = ("u" * 70 + "n" + "l" * 140 + "n" + "u" * 300 + "n" + "r" * 460
+           + "n" + "d" * 300 + "n" + "l" * 460)
     head = "n" * 45 + "b" + "n" * 6
     return (head + leg * 3)[:1950] + "n" * 300
 
@@ -74,7 +75,9 @@ def main():
 
     # ---- the same pictures and the same VRAM, frame for frame
     print("the real core draws what our emulator draws")
-    script = "n" * 40 + "b" * 3 + "n" * 5 + "u" * 40 + "l" * 40
+    # (a letter keeps the previous direction pressed in gsrun, so legs are
+    #  separated by an "n" frame that lets go of everything)
+    script = "n" * 40 + "b" * 3 + "n" * 5 + "u" * 40 + "n" + "l" * 40
     emu = run_ours(script)
     bmp, vram = run_gs(gem, script, "drive")
     ours = emu.screenshot().tobytes()
@@ -87,8 +90,8 @@ def main():
 
     # ---- HOLD really is an NMI to $0066 on that core
     print("pause on the real core")
-    base = "n" * 40 + "b" * 3 + "n" * 5 + "l" * 20
-    free = list(run_gs(gem, base + "l" * 20, "free")[1][SAT:SAT + 4])
+    base = "n" * 40 + "b" * 3 + "n" * 5 + "l" * 10
+    free = list(run_gs(gem, base + "l" * 10, "free")[1][SAT:SAT + 4])
     hold = list(run_gs(gem, base + "p" * 10 + "l" * 10, "hold")[1][SAT:SAT + 4])
     but2 = list(run_gs(gem, base + "q" * 10 + "l" * 10, "but2")[1][SAT:SAT + 4])
     check(free[1] == 60, "without a pause the car drives on (x=%d)" % free[1])

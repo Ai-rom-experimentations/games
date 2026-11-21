@@ -196,6 +196,15 @@ def main():
     chk.ok(all(v == 0xFF for v in emu.vdp.vram[0x3800:0x3808]),
            "the sprite pattern is a solid 8x8 block")
 
+    print("it is quick")
+    px0, py0 = emu.ram(R_PX), emu.ram(R_PY)
+    hold(emu, 6, p1=P1_LEFT)
+    moved = px0 - emu.ram(R_PX)
+    chk.ok(moved == 6 * 4, "the square moves 4 pixels a frame (%d px in 6 frames)" % moved)
+    chk.ok(emu.ram(R_PY) == py0, "and only the way you hold the pad")
+    emu.mem[0xC000 + R_PX] = px0                     # back on the grid
+    emu.mem[0xC000 + R_PY] = py0
+
     print("walls stop the square")
     thud = 0
     for _ in range(40):                              # straight into the middle
@@ -209,7 +218,7 @@ def main():
     chk.ok(thud <= 4, "and the thud is short (%d frames)" % thud)
     hold(emu, 120, p1=P1_RIGHT)                      # and into the outer wall
     chk.ok(emu.ram(R_PX) == 238 and emu.ram(R_PY) >= IN_B * 8,
-           "the outer wall stops the square too (x=%d)" % emu.ram(R_PX))
+           "the outer wall stops the square flush too (x=%d)" % emu.ram(R_PX))
 
     print("a lap only counts when it is a lap")
     emu.mem[0xC000 + R_PX] = 140                     # back on the grid
@@ -233,6 +242,7 @@ def main():
         if emu.ram(R_STATE) != RACE:
             break
     chk.ok({0, 1, 2, 3} <= laps_seen, "three clockwise laps are counted %s" % sorted(laps_seen))
+    chk.ok(f < 700, "and they take %d frames, about %.1f seconds" % (f, f / 60.0))
     chk.ok(hud1 == "LAP 2/3", "the infield counts the laps (%r)" % hud1)
     chk.ok(emu.ram(R_STATE) == WON, "the third lap wins the race")
     chk.ok(text(emu, 13, 9, 7) == "YOU WIN", "the win screen says YOU WIN")
@@ -309,7 +319,7 @@ def main():
     chk.ok(len(win_notes) >= 4 and win_notes[-1] > win_notes[0],
            "winning plays a rising tune %s" % win_notes)
     frames[0].save(os.path.join(args.out, "gameplay.gif"), save_all=True,
-                   append_images=frames[1:], duration=50, loop=0, optimize=True)
+                   append_images=frames[1:], duration=33, loop=0, optimize=True)
 
     # a frame from the middle of the race for the still
     best = frames[len(frames) // 2]
@@ -331,7 +341,8 @@ def main():
         emu.run_frame()
         if emu.ram(R_STATE) != RACE:
             break
-    chk.ok(emu.ram(R_RLAPS) == 3, "Susie gets her three laps (%d frames)" % f)
+    chk.ok(emu.ram(R_RLAPS) == 3,
+           "Susie gets her three laps in %d frames (%.1f s)" % (f, f / 60.0))
     chk.ok(emu.ram(R_STATE) == LOST, "and the race is lost")
     chk.ok(text(emu, 12, 9, 10) == "SUSIE WINS", "the screen says SUSIE WINS")
     hold(emu, 2, p1=P1_B1)                           # skip the typing
