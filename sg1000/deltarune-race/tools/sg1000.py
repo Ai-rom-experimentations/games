@@ -138,11 +138,15 @@ class TMS9918:
         return px
 
     def _sprites(self, px):
+        # On a TMS9918A the earliest sprite in the table has the highest
+        # priority, and only four sprites can show on any one scanline.
         size16 = self.regs[1] & 0x02
         mag = self.regs[1] & 0x01
         vram = self.vram
         sat, spr = self.sat_base, self.spr_base
         H, W = 192, 256
+        covered = bytearray(W * H)
+        per_line = [0] * H
         for i in range(32):
             base = sat + i * 4
             y = vram[base]
@@ -165,21 +169,31 @@ class TMS9918:
                 height, width = 16, 16
             else:
                 height, width = 8, 8
-            for r in range(height):
+            height *= 2 if mag else 1
+            width *= 2 if mag else 1
+            if any(per_line[yy] >= 4 for yy in range(sy, sy + height) if 0 <= yy < H):
+                continue                    # the fifth sprite of a line is lost
+            for yy in range(sy, sy + height):
+                if 0 <= yy < H:
+                    per_line[yy] += 1
+            step = 2 if mag else 1
+            scale = 2 if mag else 1
+            for r in range(height // scale):
                 if size16:
                     left = vram[spr + pat * 8 + r]
                     right = vram[spr + pat * 8 + 16 + r]
                     bits = (left << 8) | right
                 else:
                     bits = vram[spr + pat * 8 + r]
-                for b in range(width):
+                for b in range(width // scale):
                     if not (bits & (0x80 >> b)):
                         continue
-                    for dy in range(2 if mag else 1):
-                        for dx in range(2 if mag else 1):
-                            xx = sx + b * (2 if mag else 1) + dx
-                            yy = sy + r * (2 if mag else 1) + dy
-                            if 0 <= xx < W and 0 <= yy < H:
+                    for dy in range(step):
+                        for dx in range(step):
+                            xx = sx + b * step + dx
+                            yy = sy + r * step + dy
+                            if 0 <= xx < W and 0 <= yy < H and not covered[yy * W + xx]:
+                                covered[yy * W + xx] = 1
                                 px[yy][xx] = col
 
 

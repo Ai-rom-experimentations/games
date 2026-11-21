@@ -41,7 +41,8 @@ CAR_W       equ 8
 CAR_STEP    equ 4              ; pixels per frame for the player
 CAR_SUB     equ 2              ; ... but moved in steps of this, so that a wall
 CAR_SUBS    equ CAR_STEP / CAR_SUB   ; still stops the square flush against it
-RIVAL_STEP  equ 2              ; Susie is half as fast
+SUSIE_STEP  equ 2              ; half the player's pace, and the knight's
+                               ; is KNIGHT_STEP (above)
 
 CAR_X0      equ 140            ; just right of the chequered line
 CAR_Y0      equ 155            ; middle of the bottom straight
@@ -59,9 +60,21 @@ CP_TOP      equ 45             ; checkpoint 2: in the top straight
 CP_RIGHT    equ 205            ; checkpoint 3: in the right straight
 LAPS_TO_WIN equ 3
 
+; ---- the secret mode -----------------------------------------------------
+KNIGHT_STEP equ 3              ; the Roaring Knight is quicker than Susie
+SHIFT_FONT  equ 141            ; the font moved one pixel right (patterns)
+SWOON_TILE  equ 208            ; four glyphs in a red colour group
+SWOON_SLOW  equ 120            ; frames of the slow attack before the cut
+SWOON_HOLD  equ 160            ; how long the SWOON stays on screen
+SW_CX       equ 120            ; where the car gets cut in half (the swoon
+SW_CY       equ 104            ; doubles the sprite size, so it is 16x16)
+SW_ROW      equ 11             ; and where the red word goes, above it
+SW_COL      equ 13
+
 ; ---- RAM (1 KB at $C000, mirrored) ---------------------------------------
 ram         equ 0xc000
-state       equ ram+0          ; 0 title, 1 race, 2 won, 3 lost
+state       equ ram+0          ; 0 title, 1 race, 2 won, 3 lost,
+                               ; 4 the knight's line, 5 the swoon
 pad1        equ ram+1
 prev1       equ ram+2
 paused      equ ram+3
@@ -88,7 +101,20 @@ dlg_ptr     equ ram+25         ; two bytes: the next character
 dlg_col     equ ram+27
 dlg_row     equ ram+28
 dlg_timer   equ ram+29
-dlg_expr    equ ram+30         ; which portrait expression to show
+dlg_count   equ ram+30         ; characters of the line printed so far
+mode        equ ram+31         ; 0 Susie, 1 the Roaring Knight
+rstep       equ ram+32         ; how far the rival moves each frame
+font_ofs    equ ram+33         ; 0, or 128 for the wobbling copy of the font
+shake       equ ram+34         ; countdown for that wobble / for the swoon
+swoon_phase equ ram+35
+swoon_time  equ ram+36
+end_sat     equ ram+37         ; two bytes: sprite table for the end screen
+ai_x        equ ram+39         ; the knight's afterimages (four slots, three
+ai_y        equ ram+43         ; used: see spr_knight)
+sw_pitch    equ ram+47         ; two bytes: the swoon's rising attack
+sw_vol      equ ram+49
+sw_gap      equ ram+50         ; how far the car has been opened up
+sw_crash    equ ram+51         ; the shattering glass
 
         org 0x0000
         di
@@ -169,6 +195,12 @@ wait_vblank:
 title_enter:
         xor a
         ld (state), a
+        ld (font_ofs), a
+        ld (mode), a
+        ld a, 0xe0                        ; normal sprite size again
+        out (VDPCTRL), a
+        ld a, 0x81
+        out (VDPCTRL), a
         call draw_track
         call draw_title_text
         ; park both cars on the grid so the player sees them
@@ -188,13 +220,21 @@ title_enter:
 tick_title:
         ld a, (pad1)
         bit 4, a
-        jr z, .no
+        jr z, .nothing                     ; button 1 is not down
         ld a, (prev1)
         bit 4, a
-        jr nz, .no
-        call race_start
-        ret
-.no:
+        ret nz                             ; ... it was already down
+        ld a, (pad1)                       ; button 2 held as well?  That is the
+        and 0x20                           ; secret: either both at once or 2,
+        jr nz, .secret                     ; then 1, which is how two thumbs
+        xor a                              ; press a pad
+        ld (mode), a
+        jp race_start
+.secret:
+        ld a, 1
+        ld (mode), a
+        jp race_start
+.nothing:
         ret
 
 ; ==========================================================================
@@ -207,14 +247,32 @@ race_start:
         ld (cpf), a
         ld (hit), a
         ld (rseg), a
+        ld (font_ofs), a
+        ld (shake), a
         ld a, CAR_X0
         ld (px), a
         ld a, CAR_Y0
         ld (py), a
         ld a, RIVAL_X0
         ld (rx), a
+        ld (ry), a
+        ld (ai_x), a                       ; the afterimage trail starts on
+        ld (ai_x+1), a                     ; the grid, not up in the corner
+        ld (ai_x+2), a
+        ld (ai_x+3), a
         ld a, RIVAL_Y0
         ld (ry), a
+        ld (ai_y), a
+        ld (ai_y+1), a
+        ld (ai_y+2), a
+        ld (ai_y+3), a
+        ld a, (mode)
+        or a
+        ld a, SUSIE_STEP
+        jr z, .step
+        ld a, KNIGHT_STEP
+.step:
+        ld (rstep), a
         ld a, 1
         ld (state), a
         call draw_track
@@ -234,10 +292,16 @@ tick_race:
         ld a, (state)
         dec a
         ret nz                        ; the race ended on this frame
+        ld a, (mode)
+        or a
+        jr z, .rival
+        call rival_trail              ; his old place, before he leaves it
+.rival:
         call move_rival
         ld a, (state)
         dec a
-        ret nz                        ; Susie's third lap ended the race
+        ret nz                        ; the rival's third lap ended the race
+.draw:
         jp update_sprites
 
 ; ---- the player: 4 directions, walls stop the square ---------------------
@@ -414,19 +478,21 @@ check_cp:
 
 ; ---- Susie: follows the outside lane clockwise --------------------------
 move_rival:
+        ld a, (rstep)                     ; Susie 2, the knight 3
+        ld b, a
         ld a, (rseg)
         or a
         jr nz, .seg1
         ld a, (rx)                          ; bottom straight, heading left
         cp RIVAL_LINE + 1
         jr c, .move1                        ; already past the line
-        sub RIVAL_STEP
+        sub b
         cp RIVAL_LINE
         jr nc, .store1                      ; not over it yet
         ld (rx), a                          ; that is a lap
         jp rival_lap
 .move1:
-        sub RIVAL_STEP
+        sub b
 .store1:
         cp RIVAL_LEFT
         jr c, .turn1
@@ -442,7 +508,7 @@ move_rival:
         dec a
         jr nz, .seg2
         ld a, (ry)                          ; left straight, heading up
-        sub RIVAL_STEP
+        sub b
         cp RIVAL_TOP
         jr c, .turn2
         ld (ry), a
@@ -457,7 +523,7 @@ move_rival:
         dec a
         jr nz, .seg3
         ld a, (rx)                          ; top straight, heading right
-        add a, RIVAL_STEP
+        add a, b
         cp RIVAL_RIGHT
         jr nc, .turn3
         ld (rx), a
@@ -470,7 +536,7 @@ move_rival:
         ret
 .seg3:
         ld a, (ry)                          ; right straight, heading down
-        add a, RIVAL_STEP
+        add a, b
         cp RIVAL_BOTTOM
         jr nc, .turn4
         ld (ry), a
@@ -498,9 +564,20 @@ rival_lap:
 race_win:
         ld a, 2
         ld (state), a
-        ld hl, dlg_win
-        xor a                             ; expression 0: Susie is sulking
+        ld a, (mode)
+        or a
+        jr nz, .knight
+        ld hl, dlg_win                    ; Susie has something to say ...
+        ld de, portrait_sat_0             ; ... and she is sulking
         call end_screen
+        jr .finish
+.knight:
+        ld hl, dlg_knight_win             ; he cannot believe it
+        ld de, knight_sat_1               ; ... and his visor hangs open
+        call end_screen_spiked
+        ld a, 16
+        ld (shake), a                     ; the text starts to wobble
+.finish:
         ld hl, str_win
         ld b, 13
         ld c, 9
@@ -513,10 +590,13 @@ race_win:
         jp jingle_play
 
 race_lose:
+        ld a, (mode)
+        or a
+        jr nz, .knight
         ld a, 3
         ld (state), a
-        ld hl, dlg_lose
-        ld a, 1                           ; expression 1: Susie is gloating
+        ld hl, dlg_lose                   ; she is not impressed
+        ld de, portrait_sat_1             ; ... and she is gloating
         call end_screen
         ld hl, str_susiewins
         ld b, 12
@@ -529,17 +609,72 @@ race_lose:
         ld hl, jingle_lose
         jp jingle_play
 
-; HL = the dialogue stream, A = which portrait expression to show
+.knight:
+        ld a, 4
+        ld (state), a
+        ld hl, dlg_knight_lose            ; "HEH... AS EXPECTED..."
+        ld de, knight_sat_0
+        call end_screen
+        ld hl, str_knightwins
+        ld b, 11
+        ld c, 9
+        call draw_text_str
+        ld a, 70
+        ld (shake), a                     ; a beat to read it, then the swoon
+        ld hl, jingle_lose
+        jp jingle_play
+
+; HL = the dialogue stream, DE = the sprite table for the portrait
 end_screen:
-        ld (dlg_expr), a
         ld (dlg_stream), hl
+        ld (end_sat), de
         call draw_dialog_map
+        jr end_screen_go
+
+end_screen_spiked:                        ; the knight's box has spikes on it
+        ld (dlg_stream), hl
+        ld (end_sat), de
+        call draw_spiked_box
+end_screen_go:
         ld hl, (dlg_stream)
         call dlg_begin
-        ld a, (dlg_expr)
-        jp sprites_portrait
+        ld hl, (end_sat)
+        ld de, 0x1b00
+        ld bc, 81
+        jp vdp_write
+
+; the ordinary box, with a row of spikes instead of its top and bottom line
+draw_spiked_box:
+        call draw_dialog_map
+        ld a, TILE_SPIKE_U
+        ld b, DLGBOX_L + 1
+        ld c, DLGBOX_T
+        ld d, DLGBOX_R - DLGBOX_L - 1
+        call fill_row
+        ld a, TILE_SPIKE_D
+        ld b, DLGBOX_L + 1
+        ld c, DLGBOX_B
+        ld d, DLGBOX_R - DLGBOX_L - 1
+        jp fill_row
+
+; A = tile, B = first column, C = the row, D = how many cells
+fill_row:
+        call text_addr
+.next:
+        out (VDPDATA), a
+        dec d
+        jr nz, .next
+        ret
 
 tick_over:
+        ld a, (state)
+        cp 4
+        jr z, tick_knight_lost
+        cp 5
+        jp z, tick_swoon
+        ld a, (mode)
+        or a
+        call nz, shake_tick               ; the knight's text will not sit still
         call dlg_tick                     ; keep typing
         ld a, (pad1)
         bit 4, a
@@ -554,6 +689,242 @@ tick_over:
 .leave:
         jp title_enter                    ; then back to the title screen
 .no:
+        ret
+
+; ---- he has said his line.  A moment later the swoon lands
+tick_knight_lost:
+        call dlg_tick
+        ld a, (dlg_state)
+        cp 2
+        jr nz, .keys
+        ld a, (shake)
+        or a
+        jr z, swoon_start
+        dec a
+        ld (shake), a
+        ret
+.keys:
+        ld a, (pad1)
+        bit 4, a
+        ret z
+        ld a, (prev1)
+        bit 4, a
+        ret nz
+        jp dlg_flush
+
+; ==========================================================================
+;  the swoon: black screen, a wide white slash, a slow attack that swells,
+;  then glass, the word SWOON in red, and the car opened down the middle
+; ==========================================================================
+swoon_start:
+        ld a, 5
+        ld (state), a
+        xor a
+        ld (swoon_phase), a
+        ld (sfx_time), a                  ; nothing else may use the sound chip
+        ld (jingle_time), a
+        ld a, SWOON_SLOW
+        ld (swoon_time), a
+        ld hl, 1000
+        ld (sw_pitch), hl
+        ld a, 14
+        ld (sw_vol), a
+        xor a
+        ld (sw_gap), a
+        ld a, 0xe1                        ; doubled sprites: the car is 16x16
+        out (VDPCTRL), a                  ; when it is cut open
+        ld a, 0x81
+        out (VDPCTRL), a
+        call sw_clear
+        call sw_slash
+        call sw_car
+        ; the long rising note starts here and is stepped in tick_swoon
+        jp psg_sweep
+
+tick_swoon:
+        ld a, (swoon_phase)
+        or a
+        jr z, .attack
+        dec a
+        jr z, .cut
+        jp .hold
+.attack:
+        call psg_sweep
+        ld a, (swoon_time)
+        dec a
+        ld (swoon_time), a
+        ret nz
+        ld a, 1                           ; the cut lands
+        ld (swoon_phase), a
+        ld a, 30
+        ld (swoon_time), a
+        ld a, 26
+        ld (sw_crash), a
+        call sw_word
+        jp sfx_glass
+.cut:
+        call glass_tick
+        ld a, (sw_gap)
+        cp 5
+        jr nc, .wait
+        inc a
+        ld (sw_gap), a
+        call sw_car
+.wait:
+        ld a, (swoon_time)
+        dec a
+        ld (swoon_time), a
+        ret nz
+        ld a, 2
+        ld (swoon_phase), a
+        ld a, SWOON_HOLD
+        ld (swoon_time), a
+        ret
+.hold:
+        ld a, (swoon_time)
+        dec a
+        ld (swoon_time), a
+        ret nz
+        jp title_enter
+
+; ---- a black screen
+sw_clear:
+        ld hl, 0x1800
+        call vdp_setaddr
+        ld bc, 768
+.clr:
+        xor a
+        out (VDPDATA), a
+        dec bc
+        ld a, b
+        or c
+        jr nz, .clr
+        ret
+
+; ---- three diagonal lines, eight pixels apart, running down the screen
+sw_slash:
+        ld c, 0                           ; which of the three
+.chain:
+        ld d, 0                           ; the column
+.col:
+        ld a, d
+        add a, c
+        sub 3                             ; row = col + chain - 3
+        cp 24
+        jr nc, .next                      ; that cell is off the bottom
+        ld e, a                           ; the row
+        ld a, TILE_SLASH
+        push bc
+        push de
+        ld b, d
+        ld c, e
+        call put_tile
+        pop de
+        pop bc
+.next:
+        inc d
+        ld a, d
+        cp 32
+        jr c, .col
+        inc c
+        ld a, c
+        cp 3
+        jr c, .chain
+        ret
+
+; ---- the car, as two halves that can slide apart
+sw_car:
+        ld hl, 0x1b00
+        call vdp_setaddr
+        ld a, SW_CY - 1
+        out (VDPDATA), a
+        ld a, (sw_gap)
+        ld c, a
+        ld a, SW_CX
+        sub c
+        out (VDPDATA), a
+        ld a, SPR_HALF_L
+        out (VDPDATA), a
+        ld a, 0x0f
+        out (VDPDATA), a
+        ld a, SW_CY - 1
+        out (VDPDATA), a
+        ld a, SW_CX + 8
+        add a, c
+        out (VDPDATA), a
+        ld a, SPR_HALF_R
+        out (VDPDATA), a
+        ld a, 0x0f
+        out (VDPDATA), a
+        ld a, 0xd0
+        out (VDPDATA), a
+        ret
+
+; ---- the word, in the red colour group
+sw_word:
+        ld b, SW_COL
+        ld c, SW_ROW
+        ld hl, swoon_word
+.next:
+        ld a, (hl)
+        cp 0xff
+        ret z
+        push hl
+        call put_tile
+        pop hl
+        inc hl
+        inc b
+        jr .next
+
+; ---- the slow attack: one long note that climbs for two seconds while its
+;      volume swells, so that the cut feels like it is coming
+psg_sweep:
+        ld hl, (sw_pitch)
+        ld de, -6
+        add hl, de
+        ld (sw_pitch), hl
+        ld a, (swoon_time)
+        and 0x07
+        jr nz, .play
+        ld a, (sw_vol)                    ; a little louder every eighth frame
+        or a
+        jr z, .play
+        dec a
+        ld (sw_vol), a
+.play:
+        ld hl, (sw_pitch)
+        ld b, 0x80
+        ld a, (sw_vol)
+        jp psg_tone
+
+; ---- and the glass
+sfx_glass:
+        ld a, 0xe4                        ; white noise, fastest rate
+        out (PSG), a
+        ld a, 0xf0
+        out (PSG), a
+        ret
+
+glass_tick:
+        ld a, (sw_crash)
+        or a
+        ret z
+        dec a
+        ld (sw_crash), a
+        jr nz, .noise
+        ld a, 0xff
+        out (PSG), a
+        ret
+.noise:
+        and 0x03                          ; the shards change pitch as they fall
+        or 0xe4
+        out (PSG), a
+        ld a, (sw_crash)
+        srl a
+        srl a
+        srl a
+        or 0xf0
+        out (PSG), a
         ret
 
 ; ==========================================================================
@@ -576,6 +947,8 @@ draw_dialog_map:
 ;  frame with a blip.  A stream is  col, row, "text", 0 ... $FF
 ; ==========================================================================
 dlg_begin:                                ; HL = stream
+        xor a
+        ld (dlg_count), a
         ld a, 1
         ld (dlg_state), a
         ld a, 2
@@ -623,23 +996,99 @@ dlg_step:                                 ; print one more character
         ld (dlg_state), a
         ret
 .print:
-        sub 0x20
-        add a, TILE_FONT
-        ld c, a                           ; the tile
+        push af
         ld a, (dlg_col)
         ld b, a
         ld a, (dlg_row)
-        ld e, a
-        ld a, c
-        ld c, e
-        call put_tile
+        ld c, a
+        pop af
+        call dlg_char
         ld hl, (dlg_ptr)
         inc hl
         ld (dlg_ptr), hl
         ld a, (dlg_col)
         inc a
         ld (dlg_col), a
+        ld a, (dlg_count)
+        inc a
+        ld (dlg_count), a
         jp sfx_blip
+
+; A = the character, B = column, C = row.  The tile comes from whichever
+; copy of the font is selected, which is how the text is made to wobble.
+dlg_char:
+        sub 0x20
+        add a, TILE_FONT
+        ld e, a
+        ld a, (font_ofs)
+        add a, e
+        jp put_tile
+
+; reprint everything that has been typed so far, in the current font
+redraw_dialog:
+        ld hl, (dlg_stream)
+        ld a, (dlg_count)
+        or a
+        ret z
+        ld b, a
+.line:
+        ld d, (hl)                        ; this line starts at ...
+        ld a, d
+        cp 0xff
+        ret z
+        inc hl
+        ld e, (hl)                        ; ... this row
+        inc hl
+.char:
+        ld a, (hl)
+        or a
+        jr z, .next_line
+        push hl
+        push de
+        push bc
+        ld a, d
+        ld b, a
+        ld c, e
+        ld a, (hl)
+        call dlg_char
+        pop bc
+        pop de
+        pop hl
+        inc hl
+        inc d
+        dec b
+        ret z                             ; that is as far as the typewriter got
+        jr .char
+.next_line:
+        inc hl
+        ld a, (hl)
+        cp 0xff
+        ret z
+        jr .line
+
+; ---- the knight's text does not sit still -------------------------------
+shake_tick:
+        ld a, (shake)
+        or a
+        jr z, .wobble
+        dec a
+        ld (shake), a
+        ret
+.wobble:
+        ld a, 14
+        ld (shake), a
+        ld a, (font_ofs)
+        xor 128                           ; between the font and its shifted copy
+        ld (font_ofs), a
+        call redraw_dialog
+        ld hl, str_win
+        ld b, 13
+        ld c, 9
+        call draw_text_str
+        ld hl, str_press
+        ld b, 13
+        ld c, 13
+        jp draw_text_str
 
 dlg_flush:                                ; fill the box in at once
         ld b, 120
@@ -683,6 +1132,11 @@ draw_text_str:
         ret z
         sub 0x20
         add a, TILE_FONT
+        push af
+        ld a, (font_ofs)
+        ld e, a
+        pop af
+        add a, e
         out (VDPDATA), a
         inc hl
         jr .loop
@@ -742,9 +1196,18 @@ draw_hud:
         call draw_text_str
 
         ld hl, str_susie
+        ld d, HUD2_COL + 6                 ; where the lap digit goes
+        ld a, (mode)
+        or a
+        jr z, .name
+        ld hl, str_knight
+        inc d                              ; his name has no space in it
+.name:
         ld b, HUD2_COL
         ld c, HUD2_ROW
+        push de
         call draw_text_str
+        pop de
         ld a, (rlaps)
         cp LAPS_TO_WIN
         jr c, .r
@@ -753,16 +1216,22 @@ draw_hud:
         inc a
         add a, 0x30
         sub 0x20 - TILE_FONT
-        ld b, HUD2_COL + 6
+        ld b, d
         ld c, HUD2_ROW
+        push de
         call put_tile
+        pop de
+        inc d
         ld hl, str_of3
-        ld b, HUD2_COL + 7
+        ld b, d
         ld c, HUD2_ROW
         jp draw_text_str
 
-; ---- sprites: the player (white) and Susie (magenta) ---------------------
+; ---- sprites: the player (white) and the rival ---------------------------
 update_sprites:
+        ld a, (mode)
+        or a
+        jr nz, spr_knight
         ld hl, 0x1b00
         call vdp_setaddr
         ld a, (py)
@@ -787,15 +1256,69 @@ update_sprites:
         out (VDPDATA), a
         ret
 
-sprites_portrait:                         ; A = 0 sulking, 1 gloating
-        or a
-        ld hl, portrait_sat_1
-        jr nz, .go
-        ld hl, portrait_sat_0
-.go:
-        ld de, 0x1b00
-        ld bc, 81
-        jp vdp_write
+rival_trail:                              ; shuffle the knight's afterimages
+        ld a, (ai_x+2)
+        ld (ai_x+3), a
+        ld a, (ai_x+1)
+        ld (ai_x+2), a
+        ld a, (ai_x)
+        ld (ai_x+1), a
+        ld a, (rx)
+        ld (ai_x), a
+        ld a, (ai_y+2)
+        ld (ai_y+3), a
+        ld a, (ai_y+1)
+        ld (ai_y+2), a
+        ld a, (ai_y)
+        ld (ai_y+1), a
+        ld a, (ry)
+        ld (ai_y), a
+        ret
+
+; the secret race.  The earliest sprite in the table wins any overlap, so the
+; order matters: you, then the knight, then his afterimages - and only two of
+; those, because four sprites is all a TMS9918A shows on one scanline.
+spr_knight:
+        ld hl, 0x1b00
+        call vdp_setaddr
+        ld a, (py)
+        dec a
+        out (VDPDATA), a
+        ld a, (px)
+        out (VDPDATA), a
+        ld a, SPR_SOLID
+        out (VDPDATA), a
+        ld a, 0x0f
+        out (VDPDATA), a
+        ld a, (ry)
+        dec a
+        out (VDPDATA), a
+        ld a, (rx)
+        out (VDPDATA), a
+        ld a, SPR_KNIGHT
+        out (VDPDATA), a
+        ld a, 0x0f                             ; black car, white outline
+        out (VDPDATA), a
+        ld c, 2
+        ld hl, ai_x + 2
+        ld de, ai_y + 2
+.trail:
+        dec hl
+        dec e
+        ld a, (de)
+        dec a
+        out (VDPDATA), a
+        ld a, (hl)
+        out (VDPDATA), a
+        ld a, SPR_KNIGHT
+        out (VDPDATA), a
+        ld a, 0x0e                             ; grey: the afterimage
+        out (VDPDATA), a
+        dec c
+        jr nz, .trail
+        ld a, 0xd0
+        out (VDPDATA), a
+        ret
 
 sprites_hide_all:
         ld hl, 0x1b00
@@ -889,14 +1412,64 @@ gfx_upload:
 .cl:
         out (VDPDATA), a
         djnz .cl
-        ld hl, sprite_patterns
+        ld hl, 0x2000 + 26                 ; ... except one group, which is red
+        call vdp_setaddr
+        ld a, 0x81
+        out (VDPDATA), a
+        ld hl, sprite_patterns              ; solid, outline, two halves
         ld de, 0x3800
-        ld bc, 8
+        ld bc, 32
         call vdp_write
-        ld hl, portrait_data              ; Susie's two portraits
+        ld hl, portrait_data                ; Susie and the knight, 2 faces each
         ld de, 0x3800 + PORTRAIT_BASE * 8
-        ld bc, 40 * 8
-        jp vdp_write
+        ld bc, 80 * 8
+        call vdp_write
+        ; fall through
+
+; ---- the pattern sets only the secret mode needs ------------------------
+; a copy of the font one pixel to the right (so the text can wobble without
+; moving whole cells) and four glyphs in the red colour group for SWOON
+font_extra:
+        ld hl, SHIFT_FONT * 8
+        call vdp_setaddr
+        ld hl, pattern_data + TILE_FONT * 8
+        ld c, 2
+.bank:
+        ld b, 0
+.byte:
+        ld a, (hl)
+        srl a
+        out (VDPDATA), a
+        inc hl
+        djnz .byte
+        dec c
+        jr nz, .bank
+        ld hl, SWOON_TILE * 8
+        call vdp_setaddr
+        ld hl, swoon_chars
+.glyph:
+        ld a, (hl)
+        or a
+        ret z
+        push hl
+        sub 32
+        add a, TILE_FONT
+        ld l, a
+        ld h, 0
+        add hl, hl
+        add hl, hl
+        add hl, hl
+        ld de, pattern_data
+        add hl, de
+        ld b, 8
+.copy:
+        ld a, (hl)
+        out (VDPDATA), a
+        inc hl
+        djnz .copy
+        pop hl
+        inc hl
+        jr .glyph
 
 ; ==========================================================================
 ;  sound (SN76489 channel 0)
@@ -1074,6 +1647,9 @@ check_pause:
         xor b
         and b
         jr z, .hold
+        ld a, (state)                      ; on the title button 2 is half of
+        or a                               ; the secret code, not a pause
+        jr z, .hold
         call pause_toggle
 .hold:
         ld a, b
@@ -1103,6 +1679,11 @@ str_of3:       db "/3", 0
 str_susie:     db "SUSIE ", 0
 str_win:       db "YOU WIN", 0
 str_susiewins: db "SUSIE WINS", 0
+str_knight:    db "KNIGHT", 0
+str_knightwins: db "KNIGHT WINS", 0
+swoon_chars:   db "SWON", 0
+swoon_word:    db SWOON_TILE, SWOON_TILE+1, SWOON_TILE+2, SWOON_TILE+2
+               db SWOON_TILE+3, 0xff
 str_press:     db "PRESS 1", 0
 
 ; ---- the little tunes.  A stream is  frames, divider low, divider high

@@ -24,6 +24,9 @@ from sg1000 import SG1000, load_rom, P1_UP, P1_DOWN, P1_LEFT, P1_RIGHT, P1_B1, P
 R_STATE, R_PAD1, R_PAUSED = 0, 1, 3
 R_PX, R_PY, R_RX, R_RY, R_SEG, R_CP, R_LAPS, R_RLAPS = 7, 8, 9, 10, 11, 12, 13, 14
 R_DLG = 22                              # 0 off, 1 typing, 2 finished
+R_MODE, R_RSTEP = 31, 32                # 0 Susie, 1 the Roaring Knight
+R_SWOON, R_SWOON_T = 35, 36
+R_SW_GAP, R_SW_CRASH = 50, 51
 
 TITLE, RACE, WON, LOST = 0, 1, 2, 3
 
@@ -46,7 +49,31 @@ CAR = 8                                  # both squares are 8x8
 DLG_T, DLG_B = 17, 23                    # the box overwrites rows 17..23
 DLG_X, DLG_XR = OUT_L, OUT_R
 DLG_TEXT = (8, 18, 20, 22)               # the three text rows
-PORTRAIT_BASE = 32
+SWOON_ROW, SWOON_COL = 11, 13
+DLGBOX_T, DLGBOX_B = 17, 23
+R1_MAG = 0x01                           # doubled sprites, used by the swoon
+
+
+def gfx_equ(name, default):
+    """Read a constant out of the generated gfx.asm, so the test cannot drift."""
+    try:
+        with open(os.path.join(HERE, "..", "gfx.asm")) as f:
+            for line in f:
+                bits = line.split()
+                if len(bits) >= 3 and bits[0] == name and bits[1] == "equ":
+                    return int(bits[2], 0)
+    except OSError:
+        pass
+    return default
+
+
+PORTRAIT_BASE = gfx_equ("PORTRAIT_BASE", 32)
+KNIGHT_BASE = gfx_equ("KNIGHT_BASE", 72)
+SPR_OUTLINE = gfx_equ("SPR_KNIGHT", 1)
+SWOON_TILE = 208
+T_SPIKE_U = gfx_equ("TILE_SPIKE_U", 78)
+T_SPIKE_D = gfx_equ("TILE_SPIKE_D", 79)
+R1_MAG = 0x01                           # doubled sprites, used by the swoon
 PORTRAIT_SAT = 0x1B00
 PORTRAIT_PATS = 0x3800 + PORTRAIT_BASE * 8
 PORTRAIT_BYTES = 40 * 8
@@ -91,6 +118,17 @@ def tile(emu, col, row):
 
 def text(emu, col, row, length):
     return "".join(chr(32 + tile(emu, col + i, row) - TILE_FONT) for i in range(length))
+
+
+def wtext(emu, col, row, length):
+    """text(), but the wobbling copy of the font holds tiles 128 higher."""
+    out = []
+    for i in range(length):
+        t = tile(emu, col + i, row)
+        if t >= 128:
+            t -= 128
+        out.append(chr(32 + t - TILE_FONT))
+    return "".join(out)
 
 
 class Checks:
@@ -162,24 +200,6 @@ def main():
     chk.ok(py >= IN_B * 8 + 8, "in the bottom straight (y=%d)" % py)
     chk.ok(emu.ram(R_RX) < FINISH_X, "Susie starts left of it (x=%d)" % emu.ram(R_RX))
 
-    print("pause")
-    mut = (emu.ram(R_PX), emu.ram(R_PY))
-    hold(emu, 1, p1=P1_B2)
-    chk.ok(emu.ram(R_PAUSED) == 1, "button 2 pauses")
-    hold(emu, 1, p1=P1_B1)                          # cannot start while paused
-    hold(emu, 8)
-    chk.ok(emu.ram(R_STATE) == TITLE and (emu.ram(R_PX), emu.ram(R_PY)) == mut,
-           "a paused game ignores the pad")
-    hold(emu, 1, p1=P1_B2)
-    chk.ok(emu.ram(R_PAUSED) == 0, "button 2 resumes")
-    hold(emu, 2)
-    nmi(emu)
-    hold(emu, 2)
-    chk.ok(emu.ram(R_PAUSED) == 1, "HOLD (the console button) pauses as well")
-    nmi(emu)
-    hold(emu, 2)
-    chk.ok(emu.ram(R_PAUSED) == 0, "and unpauses")
-
     print("button 1 starts a race")
     start_race(emu)
     chk.ok(emu.ram(R_STATE) == RACE, "button 1 starts the race")
@@ -195,6 +215,22 @@ def main():
            "sprite 1 is Susie in magenta %s" % list(sat[4:8]))
     chk.ok(all(v == 0xFF for v in emu.vdp.vram[0x3800:0x3808]),
            "the sprite pattern is a solid 8x8 block")
+
+    print("pause")
+    mut = (emu.ram(R_PX), emu.ram(R_PY))
+    hold(emu, 1, p1=P1_B2)
+    chk.ok(emu.ram(R_PAUSED) == 1, "button 2 pauses")
+    hold(emu, 6, p1=P1_UP)                          # cannot move while paused
+    chk.ok((emu.ram(R_PX), emu.ram(R_PY)) == mut, "a paused game ignores the pad")
+    hold(emu, 1, p1=P1_B2)
+    chk.ok(emu.ram(R_PAUSED) == 0, "button 2 resumes")
+    hold(emu, 2)
+    nmi(emu)
+    hold(emu, 2)
+    chk.ok(emu.ram(R_PAUSED) == 1, "HOLD (the console button) pauses as well")
+    nmi(emu)
+    hold(emu, 2)
+    chk.ok(emu.ram(R_PAUSED) == 0, "and unpauses")
 
     print("it is quick")
     px0, py0 = emu.ram(R_PX), emu.ram(R_PY)
@@ -357,6 +393,141 @@ def main():
            "the losing portrait is a second expression (pattern %d)"
            % emu.vdp.vram[PORTRAIT_SAT + 2])
     emu.screenshot().save(os.path.join(args.out, "lose.png"))
+
+    # ======================================================================
+    #  the secret race: button 1 + button 2 on the title
+    # ======================================================================
+    print("1+2 is the secret")
+    hold(emu, 4, p1=P1_B1)                           # off the lose screen
+    hold(emu, 4)
+    chk.ok(emu.ram(R_STATE) == TITLE, "back on the title")
+    hold(emu, 1, p1=P1_B2)                           # button 2 alone is not it
+    hold(emu, 2)
+    chk.ok(emu.ram(R_STATE) == TITLE and emu.ram(R_PAUSED) == 0,
+           "button 2 on its own does nothing (not even a pause)")
+    hold(emu, 1, p1=P1_B1 | P1_B2)
+    hold(emu, 3)
+    chk.ok(emu.ram(R_STATE) == RACE and emu.ram(R_MODE) == 1,
+           "button 1 + button 2 starts the race against the Roaring Knight")
+    chk.ok(emu.ram(R_RSTEP) > 2, "his car is quicker than Susie's (%d px a frame)"
+           % emu.ram(R_RSTEP))
+    hud = text(emu, HUD2[0], HUD2[1], 10).replace(chr(19), " ")
+    chk.ok(hud == "KNIGHT 1/3", "the scoreboard says KNIGHT 1/3 (%r)" % hud)
+
+    print("his car is black with a white outline, and it leaves afterimages")
+    sat = list(emu.vdp.vram[0x1B00:0x1B20])
+    knight = sat[4:8]
+    chk.ok(knight[2] == SPR_OUTLINE and knight[3] == 0x0F,
+           "the knight is drawn with the outline pattern, in white %s" % knight)
+    trail = [sat[i:i + 4] for i in range(8, 16, 4)]
+    chk.ok(len(trail) == 2 and all(t[2] == SPR_OUTLINE and t[3] == 0x0E for t in trail),
+           "grey afterimages trail him %s" % [t[1] for t in trail])
+    chk.ok(sat[16] == 0xD0, "four sprites in all, the most a scanline can show")
+    hold(emu, 12, p1=P1_LEFT)
+    emu.screenshot().save(os.path.join(args.out, "knight-race.png"))
+
+    print("but he can still be beaten")
+    for f in range(2000):
+        emu.set_pads(p1=steer(emu.ram(R_PX), emu.ram(R_PY)))
+        emu.run_frame()
+        if emu.ram(R_STATE) != RACE:
+            break
+    chk.ok(emu.ram(R_STATE) == WON and emu.ram(R_LAPS) == 3,
+           "three laps beat him too (%d frames, he had %d)"
+           % (f, emu.ram(R_RLAPS)))
+
+    print("he does not take it well")
+    chk.ok(emu.ram(R_DLG) == 1, "his line starts typing itself out")
+    spikes = [c for c in range(2, 30) if tile(emu, c, DLGBOX_T) == T_SPIKE_U]
+    chk.ok(len(spikes) > 20, "the box is spiked: no top line, %d spikes" % len(spikes))
+    sat = list(emu.vdp.vram[0x1B00:0x1B08])
+    chk.ok(sat[2] >= KNIGHT_BASE + 20 and sat[3] == 0x0F,
+           "his portrait is on the left of it, visor hanging open (pattern %d)"
+           % sat[2])
+    for _ in range(140):                             # let the typewriter finish
+        emu.run_frame()
+    chk.ok(wtext(emu, 17, 18, 4) == "BRUH", "he says BRUH")
+    chk.ok(wtext(emu, 13, 20, 12) == "COME. ON MAN", "then COME. ON MAN")
+    chk.ok(wtext(emu, 10, 22, 17) == "I WAS RIGHT THERE", "then I WAS RIGHT THERE")
+    wobble = tile(emu, 17, 18)
+    for _ in range(16):
+        emu.run_frame()
+    chk.ok(tile(emu, 17, 18) != wobble,
+           "and the text wobbles (%d, then %d)" % (wobble, tile(emu, 17, 18)))
+    emu.screenshot().save(os.path.join(args.out, "knight-win.png"))
+
+    print("losing to him is worse")
+    for _ in range(4):                               # finish the line, then leave
+        hold(emu, 3, p1=P1_B1)
+        hold(emu, 3)
+        if emu.ram(R_STATE) == TITLE:
+            break
+    chk.ok(emu.ram(R_STATE) == TITLE, "button 1 goes back to the title")
+    hold(emu, 1, p1=P1_B1 | P1_B2)
+    hold(emu, 3)
+    chk.ok(emu.ram(R_STATE) == RACE, "the secret race again")
+    for f in range(3000):
+        emu.run_frame()                              # stand still and lose
+        if emu.ram(R_STATE) != RACE:
+            break
+    chk.ok(emu.ram(R_STATE) == 4 and emu.ram(R_RLAPS) == 3,
+           "the knight wins if you sit still (%d frames)" % f)
+    for _ in range(120):
+        emu.run_frame()
+    chk.ok(wtext(emu, 16, 18, 6) == "HEH...", "he says HEH...")
+    chk.ok(wtext(emu, 12, 20, 14) == "AS EXPECTED...", "then AS EXPECTED...")
+    emu.screenshot().save(os.path.join(args.out, "knight-lose.png"))
+
+    print("and then he swoons you")
+    for f in range(600):
+        emu.run_frame()
+        if emu.ram(R_STATE) == 5:
+            break
+    chk.ok(emu.ram(R_STATE) == 5 and emu.ram(R_SWOON) == 0,
+           "the screen goes black for the swoon (%d frames later)" % f)
+    for _ in range(3):
+        emu.run_frame()
+    chk.ok(not [t for t in emu.vdp.vram[0x1800:0x1800 + 768] if 1 <= t <= 12],
+           "the track is gone")
+    slash = sum(1 for i in range(768) if emu.vdp.vram[0x1800 + i] != 0)
+    chk.ok(slash > 40, "a wide white slash is drawn across it (%d cells)" % slash)
+    chk.ok(emu.vdp.regs[1] & R1_MAG, "the car is doubled up for the cut")
+    halves = list(emu.vdp.vram[0x1B00:0x1B08])
+    chk.ok(halves[0:4] == [104 - 1, 120, 2, 0x0F] and halves[4:8] == [104 - 1, 128, 3, 0x0F],
+           "as two halves that can come apart %s" % halves)
+    for _ in range(5):
+        emu.run_frame()
+    slow = round(emu.psg.tone_hz(0))
+    for _ in range(50):
+        emu.run_frame()
+    chk.ok(emu.ram(R_SWOON) == 0 and emu.ram(R_SWOON_T) < 80,
+           "the attack takes its time (%d frames left)" % emu.ram(R_SWOON_T))
+    rising = round(emu.psg.tone_hz(0))
+    chk.ok(rising > slow + 20 and emu.psg.vol[0] < 14,
+           "and climbs as it gets louder (%d Hz -> %d Hz)" % (slow, rising))
+    for f in range(300):
+        emu.run_frame()
+        if emu.ram(R_SWOON) == 1:
+            break
+    chk.ok(emu.ram(R_SWOON) == 1, "then the cut lands")
+    chk.ok(emu.psg.vol[3] < 15 and emu.psg.tone[3] & 0x04,
+           "with glass shattering on channel 3")
+    word = [emu.vdp.vram[0x1800 + SWOON_ROW * 32 + SWOON_COL + i] for i in range(5)]
+    chk.ok(word == [SWOON_TILE, SWOON_TILE + 1, SWOON_TILE + 2, SWOON_TILE + 2,
+                    SWOON_TILE + 3], "and SWOON appears above the car %s" % word)
+    chk.ok(emu.vdp.vram[0x2000 + 26] == 0x81, "which is drawn in red")
+    for _ in range(20):
+        emu.run_frame()
+    chk.ok(emu.ram(R_SW_GAP) == 5 and emu.vdp.vram[0x1B01] == 120 - 5
+           and emu.vdp.vram[0x1B05] == 128 + 5,
+           "the car splits down the middle and the slices slide apart")
+    emu.screenshot().save(os.path.join(args.out, "swoon.png"))
+    for f in range(500):
+        emu.run_frame()
+        if emu.ram(R_STATE) == TITLE:
+            break
+    chk.ok(emu.ram(R_STATE) == TITLE and not (emu.vdp.regs[1] & R1_MAG),
+           "then back to the title, with normal sprites again")
 
     chk.ok(not emu.errors, "no stray writes to the cartridge ROM")
     chk.ok(not emu.unknown_ports, "only known I/O ports are touched")

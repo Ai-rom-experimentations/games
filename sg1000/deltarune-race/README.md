@@ -71,6 +71,11 @@ Sources: [TCRF - Deltarune Chapter 3, "Racing Game Visuals"](https://tcrf.net/De
   the bottom of the screen over the track, her **portrait** sits on the left
   of it, and her line from the game types itself out with a blip per letter.
   She has two faces: sulking when Kris wins, gloating when she wins.
+* **A secret opponent.**  Hold **button 2** on the title screen and press
+  **button 1** (or press both together) and you race the **Roaring Knight**
+  instead of Susie.  His car is black with a white outline, he is quicker than
+  she is, and he drags three grey afterimages of himself around the track.  He
+  does not take losing well, and losing to him is worse.  Details below.
 * The console's HOLD button - labelled **HOLD** on the SG-1000, PAUSE on the
   SG-1000 II - freezes the game.  Joypad 1 **button 2** taps the same switch
   for emulators whose overlay does not give you the console button.
@@ -108,12 +113,68 @@ The text is a typewriter: one letter every third frame, a 1.2 kHz blip on
 channel 1 for each of them, and **button 1** finishes the line at once - press
 it again to go back to the title.
 
+## The secret: the Roaring Knight
+
+The title screen says `1+2 ???` for a reason.  Hold **button 2** and press
+**button 1** at the same time and the race is against the Roaring Knight.
+
+![racing the knight](screenshots/knight-race.png)
+
+His car is **black with a white outline** - a hollow square on the black
+track - and it moves **3 pixels a frame** against your 4, so he is quicker
+than Susie's 2.  Behind him come **two grey afterimages**, a ring buffer of
+where he was a moment ago, so you can see how fast he is going around.  Two
+and not three because a TMS9918A shows four sprites on a scanline at most, and
+you and he already take two of those slots; and he is the *first* of those
+four in the table, since the earliest sprite in the table wins any overlap.
+
+Beat him and the box comes back **spiked** - the top and bottom lines are
+replaced by a row of teeth - his helm is on the left with the visor hanging
+open, and the text **wobbles**:
+
+```
+BRUH
+COME. ON MAN
+I WAS RIGHT THERE
+```
+
+![the knight loses](screenshots/knight-win.png)
+
+The wobble is real, not a figure of speech: the game keeps a second copy of
+the whole font with every glyph moved one pixel to the right (generated at
+boot by shifting the pattern bytes) and swaps between the two every fourteen
+frames, reprinting the line through the typewriter's own stream.
+
+Lose to him and he says:
+
+```
+HEH...
+AS EXPECTED...
+```
+
+and then he **swoons you**.  The screen goes black with a wide white slash
+across it, and a long attack note climbs for two seconds while its volume
+swells.  The cut lands with a burst of glass, the word `SWOON` appears above
+your car **in red**, and your car comes apart: it is drawn as two halves in
+doubled-size sprites, and they slide apart down the middle while the shards
+fall.
+
+![the swoon](screenshots/swoon.png)
+
+![the knight wins](screenshots/knight-lose.png)
+
+Red text is not free on this hardware: an 8x8 cell has one colour, so the
+four glyphs of SWOON are copied at boot into their own group of eight
+patterns with a red colour-table entry (`$81`, medium red on black).  The
+slash is a single diagonal tile laid along diagonally touching cells, three
+of them eight pixels apart, which is what makes it look wide.
+
 ## Controls
 
 | | |
 |---|---|
 | **Race** | joypad 1 **up**/**down**/**left**/**right** drives the square |
-| **Title** | **button 1** starts a race |
+| **Title** | **button 1** starts a race, **button 2 + button 1** starts the secret one |
 | **End screen** | **button 1** finishes Susie's line, then goes back to the title |
 | **HOLD** | the console button (PAUSE on the SG-1000 II) freezes / unfreezes |
 | **Pause** | joypad 1 **button 2** taps the same switch |
@@ -158,14 +219,14 @@ is joypad 1, whose directions are on port `$DC` bits 0-3 (active low).
 | area | | |
 |---|---|---|
 | VDP mode | Graphics I (R0 `$00`, R1 `$A0` while the tables are loaded, then R1 `$E0`) |
-| pattern table | `$0000` (R4 `$00`) - 77 tiles: blank, wall pieces, chequers, 5x7 text font |
-| colour table | `$2000` (R3 `$80`) - 32 bytes of `$F1`, every tile white on black |
+| pattern table | `$0000` (R4 `$00`) - 80 tiles: blank, wall pieces, chequers, the slash, the spikes, 5x7 text font; the wobbling font and SWOON's four red glyphs are generated into patterns 141+ and 208+ at boot |
+| colour table | `$2000` (R3 `$80`) - 32 bytes of `$F1`, every tile white on black, except one group set to `$81` for the red SWOON |
 | name table | `$1800` (R2 `$06`) - 32x24 cells, the whole track is redrawn per screen |
-| sprite attributes | `$1B00` (R5 `$36`) - 2 sprites while racing, 20 on an end screen |
-| sprite patterns | `$3800` (R6 `$07`) - one solid 8x8 block for the cars, then the 40 portrait patterns |
-| RAM | `$C000-$C3EF` (the SG-1000 only has 1 KB; the stack lives at `$C3F0`) |
+| sprite attributes | `$1B00` (R5 `$36`) - 2 sprites while racing, 4 in the secret race, 20 on an end screen |
+| sprite patterns | `$3800` (R6 `$07`) - solid / outline / two halves for the cars, then 80 portrait patterns (two faces each for Susie and the Knight) |
+| RAM | 52 bytes of state at `$C000`, the stack at `$C3F0` (the SG-1000 only has 1 KB) |
 | frame sync | the VDP status read flag (bit 7) is polled; IRQs stay masked |
-| sound | SN76489 - channel 0 tunes and the lap blip, channel 1 the letter blips, channel 3 the noise thud |
+| sound | SN76489 - channel 0 tunes, the lap blip and the swoon, channel 1 the letter blips, channel 3 the wall thud and the breaking glass |
 
 The game logic is one pass per video frame (60 Hz):
 
@@ -183,6 +244,8 @@ high`, three bytes a note, ending on a zero frame count.  The divider is
 
 Both cars are 8x8 squares built from a single all-`$FF` sprite pattern; the
 player's sprite attribute is `$0F` (white), Susie's is `$0D` (light magenta).
+The knight is the second sprite pattern - an outline - so his square is hollow,
+and his afterimages are the same pattern in `$0E` (grey).
 The tile map is generated, so the walls, the middle square and the chequered
 line are just tiles 1-12 placed by `tools/gen_gfx.py`:
 
@@ -197,7 +260,9 @@ line are just tiles 1-12 placed by `tools/gen_gfx.py`:
 
 Collision is a plain rectangle test against `x 57..191` / `y 49..135` (the
 middle square grown by the car's 7 pixel extent) plus the outer limits
-`x 10..238`, `y 10..174`.  The square moves 4 px a frame but in two 2 px
+`x 10..238`, `y 10..174`.  In the secret race the knight is not solid: he has
+no collision at all, he simply cannot be caught, and the only way past him is
+the finish line.  The square moves 4 px a frame but in two 2 px
 steps, each one tested, so it comes to rest flush against the wall instead of
 stopping up to a step short of it, and a corner bump can never tunnel: the
 step is shorter than the wall.  The pace is two constants at the top of
@@ -212,7 +277,7 @@ gfx.asm             generated tile patterns, the track map and the title text
 deltarune.sg        built cartridge image (16 KB)
 tools/gen_gfx.py    the artwork: wall/chequer tiles, 5x7 font, track layout
 tools/sg1000.py     tiny SG-1000 emulator (Z80 + TMS9918A + SN76489)
-tools/capture.py    runs the ROM headless: 64 checks + screenshots/gif
+tools/capture.py    runs the ROM headless: 97 checks + screenshots/gif
 tools/crosscheck.py the same ROM on the real Gearsystem core, byte for byte
 tools/gsrun.cpp     cross-check harness: wraps the Gearsystem core
 screenshots/        what the emulator captured
@@ -228,20 +293,24 @@ python3 tools/gen_gfx.py --preview    # also dumps PNG previews to /tmp
 ```
 
 `tools/capture.py` boots the ROM in the bundled emulator, plays real laps on
-autopilot and asserts what happened - 64 checks, including the exact title
+autopilot and asserts what happened - 97 checks, including the exact title
 text in the name table, the wall and middle square tiles, the chequers, the
 sprite positions and colours, three laps to win, Susie winning if you idle,
 the lap checkpoints refusing to score a wiggle over the line, both pause
 buttons, and the whole of the dialogue box: its walls over the bottom
 straight, the text it types, the force-finish on button 1, the twenty sprite
 cells of the portrait, the one white eye cell, and that the winning and
-losing portraits are different pictures, and that the square really does move
-4 pixels a frame:
+losing portraits are different pictures, that the square really does move
+4 pixels a frame, and the whole secret mode: that 1+2 starts it, that the
+knight is quicker with three grey afterimages, his spiked box, his three
+lines, the wobble, and every step of the swoon (the black screen, the slash,
+the rising attack, the glass on channel 3, the red SWOON and the car coming
+apart):
 
 ```
 $ make check
 ...
-64 checks, 0 failed
+97 checks, 0 failed
 screenshots in screenshots
 ```
 
@@ -270,14 +339,18 @@ python3 tools/crosscheck.py ./gsrun     # or: make crosscheck EMU=./gsrun
 the frame and **all of VRAM** byte for byte, then presses console HOLD
 (`Key_Start` on the harness, which is the NMI button) and button 2 to prove
 that the pause works on the real core.  It is the kind of check that caught
-the swapped VDP colour-table register while Pong was being written, so it is
-worth running before believing anything:
+the swapped VDP colour-table register while Pong was being written, and this
+time it caught two things of its own: that our renderer let the *last* sprite
+drawn win an overlap when a TMS9918A gives the earliest sprite in the table
+priority, and that the knight's ghosts were being written on top of him.  Both
+showed up only as a handful of grey pixels, which is the point of comparing
+frames byte for byte:
 
 ```
 the real core draws what our emulator draws
   ok   every pixel of the frame is identical (147456 bytes)
   ok   all 16 KB of VRAM are identical
-  ok   the car's sprite is where the game put it [136, 60, 0, 15]
+  ok   the car's sprite is where the game put it [136, 10, 0, 15]
   ok   a race is running (1)
 pause on the real core
   ok   without a pause the car drives on (x=60)
@@ -289,6 +362,30 @@ the dialogue box on the real core
   ok   and so is VRAM, portrait patterns included
   ok   Susie's portrait is on the left of the box [143, 24, 52, 13, ...]
   ok   and her three lines are typed out there [...]
+```
+
+The secret mode is checked the same way - the knight's laps depend only on
+the frame count, so he wins at the same frame on both cores, which makes his
+screen and the whole swoon safe to compare byte for byte:
+
+```
+the secret mode on the real core
+  ok   and the race is on
+  ok   his outline car and its grey afterimages are identical pixel for pixel
+  ok   and so is VRAM
+  ok   the knight is a hollow white square [154, 49, 1, 15]
+  ok   and his ghosts trail behind him [55, 52]
+  ok   1+2 starts the secret race and the knight wins it
+  ok   his winning screen is identical pixel for pixel
+  ok   and so is VRAM
+  ok   with his smug visor on the left of the box (pattern 72)
+  ok   then the swoon
+  ok   the swoon is identical pixel for pixel
+  ok   and so is VRAM, slash and all
+  ok   doubled sprites, and SWOON in the red colour group
+  ok   the car is in two pieces, sliding apart [103, 115, 2, 15, ...]
+
+26 checks, 0 failed
 ```
 
 The end screen check is driven wall to wall - every leg of the script runs
@@ -306,3 +403,8 @@ outside lane so that "three attempts" becomes "three laps against Susie":
 beating her is the win, losing is the sulk.  Susie drives the outside lane
 on rails; she is not a simulation of the real scripted race, which - like the
 hidden original - you win by simply completing the laps.
+
+The Roaring Knight is in the same spirit: a joke at the player's expense.  The
+swoon is Chapter 3's ending in miniature - the same slash, the same red word,
+the same car coming apart - and whether he should be racing you at all is
+between you and the TV.

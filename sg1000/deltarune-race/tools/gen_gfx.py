@@ -166,6 +166,26 @@ DLG_LOSE = [
     "LOOKING AT THE SCREEN.",
 ]
 
+# The Roaring Knight, the secret opponent.  Same box, same typewriter; his
+# lines are centred because they are short, and the winning one gets a spiked
+# box and a wobbly font (see deltarune.asm).
+DLG_KNIGHT_WIN = [
+    "BRUH",
+    "COME. ON MAN",
+    "I WAS RIGHT THERE",
+]
+DLG_KNIGHT_LOSE = [
+    "HEH...",
+    "AS EXPECTED...",
+]
+DLG_TEXT_COLS = 22                # columns between the portrait and the wall
+
+
+def centred(text):
+    """The column that centres a line in the space right of the portrait."""
+    return DLG_COL + (DLG_TEXT_COLS - len(text)) // 2
+
+
 # title screen, drawn over the same track
 TITLE_LINES = [
     (11, 8, "DELTARUNE"),
@@ -174,6 +194,7 @@ TITLE_LINES = [
     (12, 12, "MINIGAME"),
     (13, 14, "3 LAPS"),
     (10, 15, "PRESS 1: RACE"),
+    (17, 18, "1+2 ???"),
 ]
 
 
@@ -286,12 +307,75 @@ def susie_portrait(expression):
     return img
 
 
-def portrait_patterns(img):
+# The Roaring Knight: no colour at all, just a white outline on the black of
+# the box - a helm with a nose ridge and a wide, shallow V of a visor.  On his
+# losing screen the visor is open: the V drops deeper and doubles up, which at
+# this size reads as a shocked, shouting mouth.
+KNIGHT_CELLS = [[WHITE] * 4 for _ in range(PORTRAIT_H // 8)]
+
+
+def knight_portrait(expression):
+    """0 = smug (he won), 1 = shocked (Kris beat him)."""
+    img = [[0] * PORTRAIT_W for _ in range(PORTRAIT_H)]
+
+    def dot(x, y):
+        if 0 <= x < PORTRAIT_W and 0 <= y < PORTRAIT_H:
+            img[y][x] = WHITE
+
+    def line(x0, y0, x1, y1):
+        dx, dy = abs(x1 - x0), abs(y1 - y0)
+        n = max(dx, dy)
+        for i in range(n + 1):
+            dot(x0 + (x1 - x0) * i // max(n, 1), y0 + (y1 - y0) * i // max(n, 1))
+
+    # ---- the helm: a dome that straightens into sides, and a flat chin
+    for x in range(10, 22):                     # top of the dome
+        dot(x, 6)
+    for x in range(7, 25):
+        dot(x, 7)
+    for x in range(5, 27):
+        dot(x, 8)
+    for y in range(8, 22):                      # the dome flanks
+        dot(5, y)
+        dot(26, y)
+    for y in range(22, 34):                     # down the sides
+        dot(4, y)
+        dot(27, y)
+    for x in range(6, 26):                      # the chin
+        dot(x, 34)
+    for x, y in ((4, 22), (27, 22), (5, 33), (26, 33), (5, 34), (26, 34)):
+        dot(x, y)
+    # ---- the nose ridge
+    for y in range(6, 15):
+        dot(15, y)
+        dot(16, y)
+    # ---- the neck and a hint of the shoulders
+    for y in range(35, 39):
+        dot(9, y)
+        dot(22, y)
+    for x in range(3, 29):
+        dot(x, 39)
+
+    # ---- the visor: one wide V, from wall to wall
+    if expression == 1:                          # shocked: the visor hangs open
+        line(5, 12, 15, 19)                      # an upper lip ...
+        line(26, 12, 16, 19)
+        line(5, 26, 15, 19)                      # ... and a lower one: a lens
+        line(26, 26, 16, 19)
+    else:                                        # smug: a shut, shallow V
+        line(5, 17, 15, 22)
+        line(26, 17, 16, 22)
+
+    return img
+
+
+def portrait_patterns(img, cells=None):
     """20 patterns, row major, one per sprite cell."""
+    cells = PORTRAIT_CELLS if cells is None else cells
     out = []
     for r in range(PORTRAIT_H // 8):
         for c in range(PORTRAIT_W // 8):
-            colour = PORTRAIT_CELLS[r][c]
+            colour = cells[r][c]
             pat = []
             for y in range(8):
                 bits = 0
@@ -303,15 +387,16 @@ def portrait_patterns(img):
     return out
 
 
-def portrait_sat(base_pattern):
+def portrait_sat(base_pattern, cells=None):
     """The sprite attribute table entries: y, x, pattern, colour (20 then $D0)."""
+    cells = PORTRAIT_CELLS if cells is None else cells
     rows = []
     for r in range(PORTRAIT_H // 8):
         for c in range(PORTRAIT_W // 8):
             rows.append(PORTRAIT_Y + r * 8 - 1)
             rows.append(PORTRAIT_X + c * 8)
             rows.append(base_pattern + r * 4 + c)
-            rows.append(PORTRAIT_COLOUR[PORTRAIT_CELLS[r][c]])
+            rows.append(PORTRAIT_COLOUR[cells[r][c]])
     rows.append(0xD0)
     return rows
 
@@ -361,6 +446,24 @@ def build():
     T_FONT = len(tiles)
     for ch in FONT_CHARS:
         add(font_glyph(ch))
+
+    # ---- tiles used by the secret mode (after the font, so TILE_FONT holds)
+    # the swoon's slash: a two pixel thick diagonal, corner to corner, so a
+    # chain of diagonally touching cells draws one unbroken line
+    T_SLASH = add([0xF0, 0x78, 0x3C, 0x1E, 0x0F, 0x07, 0x03, 0x01])
+
+    def spike(up):
+        pat = []
+        for y in range(8):
+            edge = y if up else 7 - y
+            bits = 0
+            for x in range(max(0, 3 - edge), min(7, 4 + edge) + 1):
+                bits |= 0x80 >> x
+            pat.append(bits)
+        return add(pat)
+
+    T_SPIKE_UP = spike(True)
+    T_SPIKE_DOWN = spike(False)
 
     def font_tile(ch):
         return T_FONT + FONT_CHARS.index(ch)
@@ -419,9 +522,13 @@ def build():
 
     return {
         "tiles": tiles,
+        "T_SLASH": T_SLASH,
+        "T_SPIKE_UP": T_SPIKE_UP,
+        "T_SPIKE_DOWN": T_SPIKE_DOWN,
         "T_BLANK": T_BLANK,
         "dialog": dialog,
         "portrait": (susie_portrait(0), susie_portrait(1)),
+        "knight": (knight_portrait(0), knight_portrait(1)),
         "T_FONT": T_FONT,
         "font_tile": font_tile,
         "track": track,
@@ -437,6 +544,9 @@ def emit_asm(g):
     a("; ----------------------------------------------------------------------")
     a("")
     a("TILE_BLANK   equ %d" % g["T_BLANK"])
+    a("TILE_SLASH   equ %d          ; the swoon's diagonal" % g["T_SLASH"])
+    a("TILE_SPIKE_U equ %d" % g["T_SPIKE_UP"])
+    a("TILE_SPIKE_D equ %d" % g["T_SPIKE_DOWN"])
     a("TILE_FONT    equ %d          ; ASCII 32..95, one tile per character" % g["T_FONT"])
     a("PATTERN_COUNT equ %d" % len(tiles))
     a("")
@@ -455,15 +565,26 @@ def emit_asm(g):
     a("HUD1_COL     equ %d" % HUD1_COL)
     a("HUD1_ROW     equ %d" % HUD1_ROW)
     a("HUD2_COL     equ %d" % HUD2_COL)
+    a("DLGBOX_L     equ %d          ; the dialogue box, in cells" % BOX_L)
+    a("DLGBOX_R     equ %d" % BOX_R)
+    a("DLGBOX_T     equ %d" % BOX_T)
+    a("DLGBOX_B     equ %d" % BOX_B)
     a("HUD2_ROW     equ %d" % HUD2_ROW)
     a("")
     a("pattern_data:")
     for i, t in enumerate(tiles):
         a("        db %s   ; tile %d" % (",".join("0x%02X" % b for b in t), i))
     a("")
-    a("; ---- sprite pattern: an 8x8 square, the colour comes from the SAT ----")
+    a("; ---- sprite patterns: the colour always comes from the SAT ----------")
+    a("SPR_SOLID    equ 0          ; the cars: a solid 8x8 block")
+    a("SPR_KNIGHT   equ 1          ; black with a white outline")
+    a("SPR_HALF_L   equ 2          ; the left and right halves the swoon opens")
+    a("SPR_HALF_R   equ 3")
     a("sprite_patterns:")
-    a("        db 0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF")
+    a("        db 0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF   ; 0 solid")
+    a("        db 0xFF,0x81,0x81,0x81,0x81,0x81,0x81,0xFF   ; 1 outline")
+    a("        db 0xF0,0xF0,0xF0,0xF0,0xF0,0xF0,0xF0,0xF0   ; 2 left half")
+    a("        db 0x0F,0x0F,0x0F,0x0F,0x0F,0x0F,0x0F,0x0F   ; 3 right half")
     a("")
     a("track_map:")
     tb = g["track"].bytes()
@@ -484,20 +605,39 @@ def emit_asm(g):
     for i, line in enumerate(DLG_LOSE):
         a('        db %d, %d, "%s", 0' % (DLG_COL, DLG_ROWS[i], line))
     a("        db 0xFF")
+    a("dlg_knight_win:")
+    for i, line in enumerate(DLG_KNIGHT_WIN):
+        a('        db %d, %d, "%s", 0' % (centred(line), DLG_ROWS[i], line))
+    a("        db 0xFF")
+    a("dlg_knight_lose:")
+    for i, line in enumerate(DLG_KNIGHT_LOSE):
+        a('        db %d, %d, "%s", 0' % (centred(line), DLG_ROWS[i], line))
+    a("        db 0xFF")
     a("")
-    a("; ---- Susie's portrait: 4x5 sprites per expression, magenta and white ----")
-    a("PORTRAIT_BASE equ 32           ; sprite pattern index of the portrait")
+    a("; ---- portraits: 4x5 sprites per expression ----")
+    a("PORTRAIT_BASE equ 32           ; Susie, magenta and white")
+    a("KNIGHT_BASE   equ 72           ; the Roaring Knight, white outline only")
     a("portrait_data:")
     for expr, name in ((0, "sulking"), (1, "taunting")):
         pats = portrait_patterns(susie_portrait(expr))
-        a("        ; expression %d - Susie %s" % (expr, name))
+        a("        ; Susie %d - %s" % (expr, name))
+        for i, t in enumerate(pats):
+            a("        db %s   ; cell %d" % (",".join("0x%02X" % b for b in t), i))
+    for expr, name in ((0, "smug"), (1, "shocked")):
+        pats = portrait_patterns(knight_portrait(expr), KNIGHT_CELLS)
+        a("        ; the knight %d - %s" % (expr, name))
         for i, t in enumerate(pats):
             a("        db %s   ; cell %d" % (",".join("0x%02X" % b for b in t), i))
     a("")
-    a("; ready made sprite attribute tables for the two expressions")
+    a("; ready made sprite attribute tables, one per expression")
     for expr, name in ((0, "sulking"), (1, "taunting")):
-        a("portrait_sat_%d:                 ; %s" % (expr, name))
+        a("portrait_sat_%d:                 ; Susie %s" % (expr, name))
         sat = portrait_sat(32 + expr * 20)
+        for i in range(0, len(sat), 4):
+            a("        db %s" % ",".join("0x%02X" % b for b in sat[i:i + 4]))
+    for expr, name in ((0, "smug"), (1, "shocked")):
+        a("knight_sat_%d:                   ; the knight %s" % (expr, name))
+        sat = portrait_sat(72 + expr * 20, KNIGHT_CELLS)
         for i in range(0, len(sat), 4):
             a("        db %s" % ",".join("0x%02X" % b for b in sat[i:i + 4]))
     a("")
