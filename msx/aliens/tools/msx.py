@@ -4,7 +4,8 @@
     TMS9918A in Graphics I mode, including sprites (4 per line, as on the real
     chip, with the earliest sprite in the table winning an overlap)
     AY-3-8910 register model (for logging / checking notes)
-    PPI at $A8-$AA (keyboard row select and joystick 1)
+    PPI at $A8-$AA (keyboard row select and matrix data)
+    the joystick on the PSG's I/O port A, where the MSX really puts it
     a 16 KB stand-in for the BIOS, tools/bios.asm
 
 The machine is an MSX1: cartridge in page 1 ($4000-$7FFF), 16 KB of RAM in
@@ -277,7 +278,7 @@ class MSX:
         self.cpu = self.m
         self.vdp = TMS9918()
         self.ay = AY38910()
-        self.joy = 0xFF                   # port $A8, active low
+        self.joy = 0xFF                   # joystick 1, active low, bit 6 set
         self.kbd_row = 0                  # port $AA, the selected row
         self.keys = [0xFF] * 11           # port $A9, 1 = key up
         self.errors = []
@@ -321,8 +322,14 @@ class MSX:
             return self.vdp.read_data()
         if p == 0x99:
             return self.vdp.read_status()
+        if p == 0xA2:
+            # reading the PSG gives back the selected register; register 14 is
+            # the joystick port (register 15 selects which one, $8F = port 1)
+            if self.ay.sel == 14:
+                return self.joy
+            return 0xFF
         if p == 0xA8:
-            return self.joy               # PPI port A: joystick 1 (and 2)
+            return 0xFF                   # PPI port A is the RAM mapper, not a pad
         if p == 0xA9:
             row = self.kbd_row            # PPI port B: the selected row
             return self.keys[row] if row < len(self.keys) else 0xFF

@@ -24,7 +24,7 @@ VDPDATA equ 0x98
 VDPCTRL equ 0x99
 PSGREG  equ 0xa0
 PSGDATA equ 0xa1
-PPIJOY  equ 0xa8                      ; PPI port A: joystick 1, active low
+PPIJOY  equ 0xa8                      ; PPI port A (matrix rows are on port B)
 PPIKEY  equ 0xa9                      ; PPI port B: the keyboard matrix
 PPIROW  equ 0xaa                      ; PPI port C: keyboard row select
 
@@ -136,6 +136,9 @@ start:
         di                            ; we poll the VDP; interrupts stay off
         call vdp_setup
         call psg_silence
+        ld a, 15                      ; PSG port B: $8F selects joystick 1, which
+        ld e, 0x8f                    ; is the setting the MSX sources give
+        call psg_set
         call init_ram
         call title_enter
 
@@ -173,17 +176,21 @@ wait_vblank:
         jr nz, .wait
 .got:   ret
 
-; ---- the joystick, turned the right way up ------------------------------
-; The joystick is on port A (active low) and the keyboard is the matrix on
-; port B: select a row on port C, read port B.  Row 8 holds the cursor keys
-; and space, which is the layout the MSX Assembly Page documents and the one
-; every emulator puts the cursor keys on, so the game plays with either.
+; ---- the joystick and the keyboard, turned the right way up -------------
+; Joystick 1 hangs off the PSG's own I/O port A, not off the PPI: point the
+; PSG at register 14 and read it back from $A2 (the joystick lines are active
+; low, and bit 6 reads as 1).  Register 15 has already been set to $8F, which
+; is what selects joystick 1 - see start.
+;
+; The keyboard is the matrix on the PPI: select a row on port C, read port B.
+; Row 8 holds the cursor keys and space, which is the layout the MSX Assembly
+; Page documents, so the game plays with either.
 read_pad:
         ld a, (pad)
         ld (prev), a
-        xor a
-        out (PPIROW), a               ; row 0, and the joystick on port A
-        in a, (PPIJOY)
+        ld a, 14
+        out (PSGREG), a               ; PSG port A: joystick 1
+        in a, (PSGDATA + 1)           ; $A2 reads the selected register
         cpl
         and 0x3f
         ld (pad), a

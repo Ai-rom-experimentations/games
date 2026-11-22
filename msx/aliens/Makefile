@@ -4,10 +4,14 @@
 #   make check    run the ROM in the bundled emulator (screenshots + checks)
 #   make preview  render the tiles and the title into /tmp, to look at the art
 #   make mx1      the same ROM as aliens.mx1, for emulators that go by suffix
+#   make serve    host web/ on http://localhost:8000 (the browser build)
+#   make web-check  run the browser build's core headless, under node
 #   make clean
 
 SJASMPLUS ?= sjasmplus
 PYTHON    ?= python3
+NODE      ?= node
+PORT      ?= 8000
 
 all: aliens.rom tools/bios.rom
 
@@ -41,8 +45,20 @@ check: aliens.rom tools/bios.rom
 preview: gfx.asm
 	$(PYTHON) tools/gen_gfx.py --preview
 
+# The browser build is a static page in web/ running the cartridge on a
+# WebAssembly MSX (blueMSX + C-BIOS).  It has to be served over http: ES
+# modules and fetch() do not work from file:// URLs.
+serve:
+	@echo "ALIENS! on http://localhost:$(PORT)/web/  (ctrl-c to stop)"
+	$(PYTHON) -m http.server $(PORT) --bind 0.0.0.0
+
+# Boots web/core the same way the page does and checks the game runs: needs
+# node, no npm install.
+web-check:
+	$(NODE) web/check.mjs
+
 clean:
 	rm -f aliens.rom aliens.mx1 tools/bios.rom
 	rm -rf tools/__pycache__
 
-.PHONY: all check preview mx1 clean
+.PHONY: all check preview mx1 serve web-check clean

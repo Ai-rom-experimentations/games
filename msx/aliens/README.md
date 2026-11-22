@@ -50,15 +50,50 @@ BIOS calls.
 
 | | |
 |---|---|
-| **Left / right** | cursor keys, or the joystick on port `$A8` |
+| **Left / right** | cursor keys, or joystick 1 |
 | **Fire** | space, or the joystick trigger |
 | **Title / game over** | fire starts a game; fire again from the game over card goes back to the title |
 
-The joystick is on PPI port A (`$A8`, active low).  The keyboard is read too
-- row 8 of the matrix, which is where the MSX puts the cursor keys (bits 7 to
-4) and space (bit 0) - so the game plays with whatever you have plugged in,
-and emulators that map the cursor keys to a joystick by default work either
-way.
+Joystick 1 is where the MSX really puts it: on the **PSG's own I/O port A**,
+not on the PPI.  Register 15 is set to `$8F` at boot (that selects joystick
+1), register 14 is selected, and the six lines - up, down, left, right,
+trigger, second button, active low - are read back from `$A2`.  The keyboard
+is read too, in the same frame: row 8 of the PPI matrix, which is where the
+MSX puts the cursor keys (bits 7 to 4) and space (bit 0), so the game plays
+with whatever you have plugged in.
+
+(An early version of this read the pad from PPI port A at `$A8`, which is
+what the little emulator in `tools/` did.  Real hardware does not put a
+joystick there, and blueMSX happily booted the game and ignored the stick;
+`make web-check` is what caught it.)
+
+## Playing it in a browser
+
+`web/` is the whole game as a web page, with no external services: an MSX1 in
+WebAssembly - the [blueMSX libretro core](https://github.com/libretro/blueMSX-libretro),
+booted on the open-source [C-BIOS](https://cbios.sourceforge.net) BIOS, both
+vendored in `web/core/` - with `aliens.rom` in the cartridge slot.  It needs
+nothing from the internet, so it also works on a plane, and on an iPad, where
+loading a ROM into webMSX is fiddly.
+
+```sh
+cd msx/aliens
+make serve                        # then open http://localhost:8000/web/
+make serve PORT=8080
+```
+
+It has to be served over http (ES modules and `fetch()` do not work from
+`file://`): any static server will do, `python3 -m http.server` is one line.
+Controls are the arrow keys or WASD, space or Z to fire, and on a touch screen
+the on-screen d-pad and FIRE button; a gamepad works too.  PAUSE, RESET,
+SOUND and FULLSCREEN are under the picture.
+
+`make web-check` boots the same core under node - no browser, no npm install -
+and checks it: 20 checks covering the cartridge loading, 272x240 at 59.92 Hz,
+frames and sound arriving, the title screen, fire starting a game, the ship
+answering the stick, a bullet in the air.  It also writes
+`screenshots/web-title.png` and `screenshots/web-play.png`, which are frames
+out of blueMSX rather than out of the emulator in `tools/`.
 
 ## Building
 
@@ -175,13 +210,14 @@ handful of columns.
 ```sh
 make check                     # 106 checks, and the screenshots above
 make check PYTHON=/path/to/python3
+make web-check                 # 20 checks of the browser build, under node
 ```
 
 `make check` needs Python 3 and [Pillow](https://python-pillow.org).  It runs
 `aliens.rom` in `tools/msx.py`, a small MSX1 emulator written for this
 repository (Z80, TMS9918A in Graphics I with sprites, AY-3-8910 register
-model, PPI joystick port), started through `tools/bios.rom` the way the real
-BIOS would start a cartridge.  It then reads the VDP's VRAM and the PSG's
+model, the joystick on the PSG's port A as on the real machine), started
+through `tools/bios.rom` the way the real BIOS would start a cartridge.  It then reads the VDP's VRAM and the PSG's
 registers back and plays the game with an autopilot:
 
 * the cartridge header, the VDP registers and the tables, the 96 tile
