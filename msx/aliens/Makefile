@@ -3,6 +3,7 @@
 #   make          assemble aliens.rom (the cartridge) and the stand-in BIOS
 #   make check    run the ROM in the bundled emulator (screenshots + checks)
 #   make preview  render the tiles and the title into /tmp, to look at the art
+#   make mx1      the same ROM as aliens.mx1, for emulators that go by suffix
 #   make clean
 
 SJASMPLUS ?= sjasmplus
@@ -28,6 +29,12 @@ aliens.rom: aliens.asm gfx.asm
 tools/bios.rom: tools/bios.asm
 	$(SJASMPLUS) --raw=tools/bios.rom tools/bios.asm
 
+# Some emulators pick the console from the file extension, and .rom is also an
+# Atari Jaguar extension.  `make mx1` writes the same 16 KB image under the
+# MSX1 cartridge extension, which nothing else claims.
+mx1: aliens.rom
+	cp aliens.rom aliens.mx1
+
 check: aliens.rom tools/bios.rom
 	$(PYTHON) tools/capture.py
 
@@ -35,7 +42,7 @@ preview: gfx.asm
 	$(PYTHON) tools/gen_gfx.py --preview
 
 clean:
-	rm -f aliens.rom tools/bios.rom
+	rm -f aliens.rom aliens.mx1 tools/bios.rom
 	rm -rf tools/__pycache__
 
-.PHONY: all check preview clean
+.PHONY: all check preview mx1 clean

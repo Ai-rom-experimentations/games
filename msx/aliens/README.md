@@ -88,6 +88,17 @@ Any MSX1 emulator will do, for example:
 * **fMSX** - `fmsx -cart aliens.rom`
 * **Emulicious** - choose the MSX machine, then load the ROM
 
+**If your emulator files it under the wrong console**, it is going by the
+file extension: `.rom` is also the usual extension for Atari Jaguar dumps, and
+Manic EMU on iOS, for one, puts `aliens.rom` under Jaguar because of it.
+Nothing is wrong with the image - a 16 KB MSX1 cartridge whose first two bytes
+are `AB` is exactly what is in the file - so copy it to **`aliens.mx1`**, the
+MSX1 cartridge extension that no other system claims (`make mx1` does that),
+and let it import again.  In Manic you can also long-press the game and use
+*Assign Platform* to move it to MSX, then *Switch Core* to blueMSX (or fMSX).
+BlueMSX wants MSX BIOS files for the full machines; its C-BIOS machine needs
+none.
+
 On real hardware: burn `aliens.rom` to a 16 KB EPROM cartridge.  The image
 starts with the MSX cartridge header (`"AB"` at `$4000` and `INIT` at
 `$4010`), so the BIOS starts it by itself; the game then takes the machine
