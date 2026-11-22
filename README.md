@@ -12,7 +12,7 @@ One folder per console, one folder per game inside it:
 |---|---|---|
 | **SG-1000** | [`sg1000/`](sg1000) | **Pong** - Atari's 1972 arcade game in Z80 assembly, 16 KB cartridge, one or two players ([folder](sg1000/pong), [screenshots](sg1000/pong/screenshots), [README](sg1000/pong/README.md))<br>**DELTARUNE Chapter 3 Hidden Racing Minigame** - the racing game hidden behind Kris' back in Deltarune Chapter 3, three laps against Susie, with sounds and a dialogue box with her portrait - and a secret opponent behind button 1+2 ([folder](sg1000/deltarune-race), [screenshots](sg1000/deltarune-race/screenshots), [README](sg1000/deltarune-race/README.md)) |
 | **Master System** | [`sms/`](sms) | - |
-| **MSX** | [`msx/`](msx) | - |
+| **MSX** | [`msx/`](msx) | **Aliens!** - a Galaga clone: a swaying formation of eighteen aliens over a scrolling starfield, divers, return fire, a high score and seven PSG sounds ([folder](msx/aliens), [screenshots](msx/aliens/screenshots), [README](msx/aliens/README.md)) |
 | **NES** | [`nes/`](nes) | - |
 
 Every game folder is self contained: the sources and artwork, a `Makefile`
