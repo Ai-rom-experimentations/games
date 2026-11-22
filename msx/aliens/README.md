@@ -149,7 +149,7 @@ handful of columns.
 ## The tests
 
 ```sh
-make check                     # 100 checks, and the screenshots above
+make check                     # 106 checks, and the screenshots above
 make check PYTHON=/path/to/python3
 ```
 
@@ -175,6 +175,8 @@ registers back and plays the game with an autopilot:
   the life counter drops, the next ship is in the middle,
 * losing the last ship, `GAME OVER`, the high score, and back to the title,
 * clearing a wave: 200 points, `WAVE 2`, a fresh formation,
+* 2400 frames of an autopilot playing hard: nothing written to the ROM, the
+  state machine still sane, the scoreboard still there,
 * every sound script in the ROM is well formed, and the shot fades to
   silence.
 

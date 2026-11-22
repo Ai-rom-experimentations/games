@@ -524,6 +524,33 @@ def main():
     chk.ok(text(emu2, 0, 1, 6) == "WAVE 2", "the scoreboard counts it %r"
            % text(emu2, 0, 1, 6))
 
+    # ---- a long game ----------------------------------------------------
+    print("a long game")
+    emu5 = MSX(rom, bios)
+    boot(emu5)
+    chk.ok(start_game(emu5), "a fresh game")
+    for f in range(2400):
+        pad = 0
+        if f % 7 == 0:
+            pad |= FIRE
+        if (f // 30) % 2:
+            pad |= RIGHT
+        else:
+            pad |= LEFT
+        emu5.set_pad(pad)
+        emu5.run_frame()
+    emu5.set_pad(0)
+    run(emu5, 2)
+    chk.ok(not emu5.errors, "2400 frames of play without touching the ROM%s"
+           % ("" if not emu5.errors else ": " + emu5.errors[0]))
+    chk.ok(emu5.ram(ST) in (PLAY, DYING, WAVE, OVER), "the state machine is sane (%d)"
+           % emu5.ram(ST))
+    chk.ok(text(emu5, 0, 0, 5) == "SCORE", "the scoreboard is still there %r"
+           % text(emu5, 0, 0, 5))
+    chk.ok(0 <= emu5.ram(ALIENS_N) <= 18, "and the alien count is in range (%d)"
+           % emu5.ram(ALIENS_N))
+    chk.ok(emu5.ram(WAVE) <= 8, "the wave counter is capped (%d)" % emu5.ram(WAVE))
+
     # ---- the sound scripts ---------------------------------------------
     print("the sound")
     scripts = 0
@@ -563,11 +590,20 @@ def main():
             emu4.run_frame()
             frames.append(emu4.screenshot())
         start_game(emu4)
-        for f in range(150):
-            if f % 40 < 20:
-                emu4.set_pad(RIGHT if f % 80 < 40 else LEFT)
+        for f in range(220):
+            if f % 40 == 5:            # line up under the lowest alien and fire
+                cells = alien_cells(emu4)
+                if cells:
+                    low = max(r for c, r in cells)
+                    aim(emu4, min(c for c, r in cells if r == low))
+            if emu4.ram(BULLET_ON) == 0 and f % 9 == 0:
+                emu4.set_pad(FIRE)
             else:
-                emu4.set_pad(FIRE if f % 7 == 0 else 0)
+                emu4.set_pad(0)
+            if emu4.ram(S_ON) and (f // 12) % 2:   # and dodge the odd shot
+                sx = emu4.ram(S_X) - 4
+                px = emu4.ram(PX)
+                emu4.set_pad(LEFT if px > sx else RIGHT if px < sx else 0)
             emu4.run_frame()
             frames.append(emu4.screenshot())
         gif = os.path.join(args.out, "gameplay.gif")
