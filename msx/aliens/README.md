@@ -84,9 +84,20 @@ Any MSX1 emulator will do, for example:
 
 * **openMSX** - `openmsx -cart aliens.rom`
 * **blueMSX** (Windows) - *File > Run cartridge*, or drag the ROM onto it
-* **WebMSX** (browser, `webmsx.com`) - *Load ROM*
+* **WebMSX** (browser, `webmsx.org`) - *Load ROM*, or just open the link below
 * **fMSX** - `fmsx -cart aliens.rom`
 * **Emulicious** - choose the MSX machine, then load the ROM
+
+**In a browser, one link is enough.**  WebMSX can take the cartridge from a
+URL, so this opens the game straight away, nothing to download and no file
+picker:
+
+<https://webmsx.org/?ROM=https://raw.githubusercontent.com/Ai-rom-experimentations/games/arena/b3d45007-sg1000/msx/aliens/aliens.rom>
+
+If you would rather pick the file yourself, note that WebMSX's cartridge
+input only accepts `.bin .rom .bios .zip .gz` - **not** `.mx1` or `.mx2`, so
+hand it `aliens.rom`.  On an iPad you can also drag the file from the Files
+app into the Safari window (split view), which skips the picker altogether.
 
 **If your emulator files it under the wrong console**, it is going by the
 file extension: `.rom` is also the usual extension for Atari Jaguar dumps, and
@@ -94,7 +105,9 @@ Manic EMU on iOS, for one, puts `aliens.rom` under Jaguar because of it.
 Nothing is wrong with the image - a 16 KB MSX1 cartridge whose first two bytes
 are `AB` is exactly what is in the file - so copy it to **`aliens.mx1`**, the
 MSX1 cartridge extension that no other system claims (`make mx1` does that),
-and let it import again.  In Manic you can also long-press the game and use
+and let it import again.  (`.mx1` is what openMSX, blueMSX, fMSX and Manic
+want; WebMSX, oddly, does not list it, so keep `aliens.rom` for that one.)
+In Manic you can also long-press the game and use
 *Assign Platform* to move it to MSX, then *Switch Core* to blueMSX (or fMSX).
 BlueMSX wants MSX BIOS files for the full machines; its C-BIOS machine needs
 none.
