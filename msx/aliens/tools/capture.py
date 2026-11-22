@@ -32,6 +32,8 @@ ST, PX, LIVES, SCORE, HI, WAVE = 0, 4, 5, 6, 9, 12
 ALIENS, ALIENS_N, FORM_X, FORM_Y = 13, 31, 32, 33
 BULLET_ON, BX, BY = 39, 40, 41
 DIVE_T, SHOT_T = 42, 43
+D_ON, D2_ON = 44, 50                 # the two divers: on, x, y, type, slot, phase
+SHIP_Y = 168
 S_ON, S_X, S_Y = 56, 57, 58
 RAND, TITLE_T = 961, 962
 
@@ -523,6 +525,60 @@ def main():
     chk.ok(emu2.ram(ST) == PLAY, "then the game carries on (%d)" % emu2.ram(ST))
     chk.ok(text(emu2, 0, 1, 6) == "WAVE 2", "the scoreboard counts it %r"
            % text(emu2, 0, 1, 6))
+
+    # ---- dying while a diver is out -------------------------------------
+    # The divers are switched off when the ship explodes, so an alien still out
+    # on a dive has to be put back in the formation first.  Without that its
+    # slot stays marked "out" for good: no tile, nothing for a bullet to hit,
+    # still counted - and a wave that can never be cleared.  Its own machine,
+    # because this one finishes the wave on purpose.
+    print("dying while a diver is out")
+    emu6 = MSX(rom, bios)
+    boot(emu6)
+    chk.ok(start_game(emu6), "a fresh game")
+    diver = None
+    for _ in range(4000):
+        base = D_ON if emu6.ram(D_ON) else D2_ON if emu6.ram(D2_ON) else None
+        if base is not None and emu6.ram(base + 2) > 60:
+            diver = emu6.ram(base + 4)
+            break
+        emu6.set_pad(0)
+        emu6.run_frame()
+    chk.ok(diver is not None, "an alien is out on a dive (slot %s)" % diver)
+    if diver is not None:
+        before_n = emu6.ram(ALIENS_N)
+        emu6.mem[0xC000 + S_ON] = 1    # drop a shot on the ship, right now
+        emu6.mem[0xC000 + S_X] = emu6.ram(PX) + 4
+        emu6.mem[0xC000 + S_Y] = SHIP_Y - 2
+        for _ in range(10):
+            emu6.set_pad(0)
+            emu6.run_frame()
+        chk.ok(emu6.ram(ST) == DYING, "the ship is hit while the diver is flying (%d)"
+               % emu6.ram(ST))
+        chk.ok(not emu6.ram(ALIENS + diver) & 0x80,
+               "the diver's alien is back in its slot (%02X)" % emu6.ram(ALIENS + diver))
+        stranded = [i for i in range(18) if emu6.ram(ALIENS + i) & 0x80]
+        chk.ok(not stranded, "and no slot is left marked out%s"
+               % ("" if not stranded else ": %s" % stranded))
+        alive = [i for i in range(18)
+                 if emu6.ram(ALIENS + i) and not emu6.ram(ALIENS + i) & 0x80]
+        chk.ok(emu6.ram(ALIENS_N) == before_n == len(alive),
+               "the alien count still matches the formation (%d, %d slots)"
+               % (emu6.ram(ALIENS_N), len(alive)))
+        chk.ok(len(alien_cells(emu6)) == len(alive),
+               "and every one of them is on screen (%d tiles)" % len(alien_cells(emu6)))
+        # ...and the wave can still be finished, which is the whole point:
+        # shoot down what is left the way a bullet would, and the count has to
+        # land on zero.
+        for i in range(18):
+            if emu6.ram(ALIENS + i) and not emu6.ram(ALIENS + i) & 0x80:
+                emu6.mem[0xC000 + ALIENS + i] = 0
+                emu6.mem[0xC000 + ALIENS_N] -= 1
+        for _ in range(80):
+            emu6.run_frame()
+        chk.ok(emu6.ram(WAVE) == 2 and emu6.ram(ST) == WAVE_IN,
+               "clearing what is left still ends the wave (wave %d, state %d)"
+               % (emu6.ram(WAVE), emu6.ram(ST)))
 
     # ---- a long game ----------------------------------------------------
     print("a long game")

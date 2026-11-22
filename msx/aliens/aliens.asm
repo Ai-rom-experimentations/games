@@ -1243,6 +1243,23 @@ tick_diver:
         call diver_home
         ret
 
+; Both divers go home at once.  A diver that is switched off without this
+; leaves its slot marked "out of the formation" (bit 7) with nothing left to
+; bring it back: no tile to draw, nothing for a bullet to hit, still counted
+; in aliens_n.  That is a wave that can never be cleared - and it used to
+; happen every time the ship was hit while a diver was in the air.
+divers_home:
+        ld ix, d_on
+        call diver_land
+        ld ix, d2_on
+diver_land:
+        ld a, (ix+0)
+        or a
+        ret z
+        xor a
+        ld (ix+0), a
+        jp diver_home
+
 ; IX = a diver that has finished: its alien goes back in its slot
 diver_home:
         ld e, (ix+4)
@@ -1341,6 +1358,7 @@ tick_shot:
 ;  dying, and the end of the game
 ; ==========================================================================
 player_dies:
+        call divers_home              ; before the divers are cleared below
         ld a, ST_DYING
         ld (state), a
         ld a, 50
@@ -1349,8 +1367,6 @@ player_dies:
         call sfx_play
         xor a
         ld (bullet_on), a
-        ld (d_on), a
-        ld (d2_on), a
         ld (s_on), a
         ld (s2_on), a
         ret

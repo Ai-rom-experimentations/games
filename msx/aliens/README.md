@@ -25,7 +25,9 @@ BIOS calls.
 * **Divers**: every couple of seconds one of the aliens peels out of the
   formation and weaves its way down the screen as a sprite with its own
   colour.  If it reaches the bottom it climbs back into its slot; if it
-  touches your ship you lose a life.  Two can be in the air at once.
+  touches your ship you lose a life - and then it climbs back too, because an
+  alien stuck "out of the formation" would be an alien nothing could shoot.
+  Two can be in the air at once.
 * **The aliens shoot back**: a red spark leaves a random alien every second
   or so and falls towards you.
 * Your ship slides along the bottom (3 pixels a frame), fires one bullet at a
@@ -176,6 +178,16 @@ which cells belong to somebody.  Before drawing a star it asks; the formation
 and the explosions claim their cells; the scoreboard claims its rows.  That
 is what keeps the starfield from eating the logo.
 
+**Nothing may be stranded.**  A diver takes its alien out of the formation by
+setting bit 7 of that alien's byte: the formation pass skips it, so the tile
+goes away and the sprite takes over.  That means every path off the screen has
+to put the alien back - including the one where nothing puts it back by
+itself, because the ship just exploded and the divers were cleared.  A slot
+left marked out is invisible, unhittable and still counted in the alien total,
+so the wave never ends: the game looks finished and quietly refuses to.  (That
+was the bug behind "an alien dived at me, I died, and now the wave won't
+end" - dying with a diver up cleared it without sending it home.)
+
 **The sprite list is a list.**  On a TMS9918A a sprite whose y coordinate is
 `$D0` *ends the sprite list* - the chip stops looking.  Parking a bullet
 that is not in the air with `$D0` therefore hides everything after it in the
@@ -208,7 +220,7 @@ handful of columns.
 ## The tests
 
 ```sh
-make check                     # 106 checks, and the screenshots above
+make check                     # 113 checks, and the screenshots above
 make check PYTHON=/path/to/python3
 make web-check                 # 20 checks of the browser build, under node
 ```
@@ -233,6 +245,8 @@ registers back and plays the game with an autopilot:
 * a diver leaving the formation, coming down the screen and going home,
 * an alien shot appearing, falling, and taking a life: the ship explodes,
   the life counter drops, the next ship is in the middle,
+* dying while a diver is in the air: its alien goes back into the formation,
+  no slot is left marked out, and the wave can still be finished,
 * losing the last ship, `GAME OVER`, the high score, and back to the title,
 * clearing a wave: 200 points, `WAVE 2`, a fresh formation,
 * 2400 frames of an autopilot playing hard: nothing written to the ROM, the
