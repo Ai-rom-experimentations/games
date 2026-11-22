@@ -501,6 +501,10 @@ def main():
     chk.ok(hi_now == [emu.ram(SCORE + i) for i in range(3)] or hi_now >= [0x00, 0x20, 0x00],
            "the high score takes the best score %s" % [hex(h) for h in hi_now])
     emu.screenshot().save(os.path.join(args.out, "gameover.png"))
+    run(emu, 60)                       # the funeral march, and no input at all
+    chk.ok([emu.ay.vol(c) for c in range(3)] == [0, 0, 0],
+           "and its jingle dies away on its own (%s)"
+           % [emu.ay.vol(c) for c in range(3)])
     run(emu, 2, FIRE)
     run(emu, 10)
     chk.ok(emu.ram(ST) == TITLE, "the trigger goes back to the title (%d)" % emu.ram(ST))
@@ -520,8 +524,19 @@ def main():
     chk.ok(text(emu2, 13, 12, 6) == "WAVE 2", "the wave card says %r"
            % text(emu2, 13, 12, 6))
     chk.ok(emu2.ram(ALIENS_N) == 18, "eighteen fresh aliens (%d)" % emu2.ram(ALIENS_N))
-    chk.ok([emu2.ay.reg[7] & 0x3F, emu2.ay.reg[8]] != [0, 0] or True, "and a jingle")
-    run(emu2, 90)
+    chk.ok(emu2.ay.vol(0) > 0, "and the fanfare is playing (%d)" % emu2.ay.vol(0))
+    # This is where it used to hang: the fanfare was one pair short, so the
+    # player read past the end of it and never wrote the final silence.  It
+    # has to stop on its own - no shot, no input, nothing to overwrite it.
+    run(emu2, 40)
+    chk.ok(emu2.ram(ST) == WAVE_IN,
+           "the wave card is still up while it plays (%d)" % emu2.ram(ST))
+    chk.ok([emu2.ay.vol(c) for c in range(3)] == [0, 0, 0],
+           "the fanfare stops by itself (%s)" % [emu2.ay.vol(c) for c in range(3)])
+    where = emu2.ram(958) | (emu2.ram(959) << 8)
+    chk.ok(rom[where - 0x4000] == 0 and emu2.ram(960) == 0,
+           "having walked the script to its end (%04X, wait %d)" % (where, emu2.ram(960)))
+    run(emu2, 50)
     chk.ok(emu2.ram(ST) == PLAY, "then the game carries on (%d)" % emu2.ram(ST))
     chk.ok(text(emu2, 0, 1, 6) == "WAVE 2", "the scoreboard counts it %r"
            % text(emu2, 0, 1, 6))
@@ -609,6 +624,13 @@ def main():
 
     # ---- the sound scripts ---------------------------------------------
     print("the sound")
+    # A script is a run of steps - wait, count, then count register/value
+    # pairs - ending on a zero byte.  The player trusts the count, so a step
+    # that promises more pairs than it has makes it swallow the next step's
+    # header: the walk then lands on a byte that happens to look like a
+    # terminator and the last volume written is never zero, which means the
+    # jingle never stops.  Checking the length alone misses that, so every
+    # script also has to end by muting channel A.
     scripts = 0
     for pat in (bytes([2, 4, 7, 0x3E, 0, 93]), bytes([3, 3, 7, 0x37, 6, 12]),
                 bytes([2, 4, 7, 0x3E, 0, 60]), bytes([3, 4, 7, 0x3E, 0, 200]),
@@ -618,14 +640,29 @@ def main():
         if at < 0:
             continue
         scripts += 1
-        good = True
-        while rom[at] != 0:
-            count = rom[at + 1]
-            if not 1 <= count <= 8:
-                good = False
+        pos, last, why, steps = at, None, "", 0
+        while rom[pos] != 0:
+            frames, count = rom[pos], rom[pos + 1]
+            if not 1 <= frames <= 64:
+                why = "a step with %d frames" % frames
                 break
-            at += 2 + count * 2
-        chk.ok(good, "a sound script at %04X is well formed" % (0x4000 + rom.find(pat)))
+            if not 1 <= count <= 8:
+                why = "a step with %d pairs" % count
+                break
+            pairs = [(rom[pos + 2 + 2 * i], rom[pos + 3 + 2 * i]) for i in range(count)]
+            if any(reg > 15 for reg, _ in pairs):
+                why = "a write to a register that does not exist"
+                break
+            last = pairs[-1]
+            pos += 2 + count * 2
+            steps += 1
+            if pos > len(rom) - 16:
+                why = "a script that runs off the ROM"
+                break
+        if not why and last != (8, 0):
+            why = "a last pair of %d/%d instead of muting channel A" % last
+        chk.ok(not why, "a sound script at %04X is well formed - %d steps, ends silent%s"
+               % (0x4000 + at, steps, "" if not why else ": " + why))
     chk.ok(scripts == 7, "all seven effects are in the ROM (%d)" % scripts)
     emu3 = MSX(rom, bios)
     boot(emu3)

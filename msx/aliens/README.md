@@ -210,6 +210,17 @@ sfx_boom:
         db 0
 ```
 
+**A jingle has to end itself.**  The count in a step is what the player walks
+by, so a step that promises one pair more than it holds makes it read the next
+step's header as data: from there it drifts through the table, applies whatever
+it finds, and usually lands on a byte that looks like a terminator while the
+volume register is still up.  Nothing then says "stop" - the channel hums until
+some other sound is played over it.  That is the whole of "the win sound goes
+forever until you shoot": the fanfare and the game over march were each a pair
+short.  Every step is now checked against its own count, every script is
+required to end by muting the channel, and the tests wait out the fanfare and
+the funeral march with no input at all and listen for silence.
+
 The random numbers the divers, the shots and the stars need come from a
 right-shifting 8 bit LFSR (period 255).  Two earlier attempts - a plain shift
 register, then a multiply-by-five generator - scattered the *high* bits and
@@ -220,7 +231,7 @@ handful of columns.
 ## The tests
 
 ```sh
-make check                     # 113 checks, and the screenshots above
+make check                     # 118 checks, and the screenshots above
 make check PYTHON=/path/to/python3
 make web-check                 # 20 checks of the browser build, under node
 ```
@@ -251,7 +262,11 @@ registers back and plays the game with an autopilot:
 * clearing a wave: 200 points, `WAVE 2`, a fresh formation,
 * 2400 frames of an autopilot playing hard: nothing written to the ROM, the
   state machine still sane, the scoreboard still there,
-* every sound script in the ROM is well formed, and the shot fades to
-  silence.
+* the game over march, and then silence - with no input to stop it,
+* the fanfare for a cleared wave stopping by itself, having walked its script
+  to the end, while the wave card is still up,
+* every sound script in the ROM is well formed: sane step lengths, no write to
+  a register that does not exist, and a last pair that mutes the channel,
+* and the shot fades to silence.
 
 It also writes `screenshots/*.png` and `screenshots/gameplay.gif`.
