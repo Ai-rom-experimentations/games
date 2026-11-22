@@ -171,12 +171,12 @@ DLG_LOSE = [
 # box and a wobbly font (see deltarune.asm).
 DLG_KNIGHT_WIN = [
     "BRUH",
-    "COME. ON MAN",
+    "COME ON MAN",
     "I WAS RIGHT THERE",
 ]
 DLG_KNIGHT_LOSE = [
     "HEH...",
-    "AS EXPECTED",
+    "AS EXPECTED.",
 ]
 DLG_TEXT_COLS = 22                # columns between the portrait and the wall
 

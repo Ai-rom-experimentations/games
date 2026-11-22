@@ -612,7 +612,7 @@ race_lose:
 .knight:
         ld a, 4
         ld (state), a
-        ld hl, dlg_knight_lose            ; "HEH... AS EXPECTED"
+        ld hl, dlg_knight_lose            ; "HEH... AS EXPECTED."
         ld de, knight_sat_0
         call end_screen
         ld hl, str_knightwins

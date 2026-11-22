@@ -134,7 +134,7 @@ open, and the text **wobbles**:
 
 ```
 BRUH
-COME. ON MAN
+COME ON MAN
 I WAS RIGHT THERE
 ```
 
@@ -149,7 +149,7 @@ Lose to him and he says:
 
 ```
 HEH...
-AS EXPECTED
+AS EXPECTED.
 ```
 
 and then he **swoons you**.  The screen goes black with a wide white slash

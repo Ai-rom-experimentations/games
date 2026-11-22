@@ -187,12 +187,12 @@ dlg_lose:
         db 0xFF
 dlg_knight_win:
         db 17, 18, "BRUH", 0
-        db 13, 20, "COME. ON MAN", 0
+        db 13, 20, "COME ON MAN", 0
         db 10, 22, "I WAS RIGHT THERE", 0
         db 0xFF
 dlg_knight_lose:
         db 16, 18, "HEH...", 0
-        db 13, 20, "AS EXPECTED", 0
+        db 13, 20, "AS EXPECTED.", 0
         db 0xFF
 
 ; ---- portraits: 4x5 sprites per expression ----

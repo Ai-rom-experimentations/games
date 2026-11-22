@@ -447,7 +447,7 @@ def main():
     for _ in range(140):                             # let the typewriter finish
         emu.run_frame()
     chk.ok(wtext(emu, 17, 18, 4) == "BRUH", "he says BRUH")
-    chk.ok(wtext(emu, 13, 20, 12) == "COME. ON MAN", "then COME. ON MAN")
+    chk.ok(wtext(emu, 13, 20, 11) == "COME ON MAN", "then COME ON MAN")
     chk.ok(wtext(emu, 10, 22, 17) == "I WAS RIGHT THERE", "then I WAS RIGHT THERE")
     wobble = tile(emu, 17, 18)
     for _ in range(16):
@@ -475,7 +475,7 @@ def main():
     for _ in range(120):
         emu.run_frame()
     chk.ok(wtext(emu, 16, 18, 6) == "HEH...", "he says HEH...")
-    chk.ok(wtext(emu, 13, 20, 11) == "AS EXPECTED", "then AS EXPECTED")
+    chk.ok(wtext(emu, 13, 20, 12) == "AS EXPECTED.", "then AS EXPECTED.")
     emu.screenshot().save(os.path.join(args.out, "knight-lose.png"))
 
     print("and then he swoons you")
