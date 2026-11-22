@@ -254,7 +254,7 @@ vdp_setup:
 
 vdp_regs:
         db 0x00                       ; R0 Graphics I
-        db 0xe0                       ; R1 display on, 8x8 sprites, doubled
+        db 0xc0                       ; R1 display on, 8x8 sprites, no VDP irq
         db 0x06                       ; R2 name table   $1800
         db 0x80                       ; R3 colour table $2000
         db 0x00                       ; R4 patterns     $0000

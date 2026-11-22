@@ -221,7 +221,7 @@ def main():
     emu = MSX(rom, bios)
     boot(emu)
     regs = [emu.vdp.regs[i] for i in range(8)]
-    chk.ok(regs[0] == 0x00 and regs[1] == 0xE0, "the VDP is in Graphics I, display on %s"
+    chk.ok(regs[0] == 0x00 and regs[1] == 0xC0, "the VDP is in Graphics I, display on %s"
            % [hex(r) for r in regs[:2]])
     chk.ok(regs[2:] == [0x06, 0x80, 0x00, 0x36, 0x07, 0x01],
            "and the tables are where it expects them %s" % [hex(r) for r in regs[2:]])
