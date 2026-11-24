@@ -18,7 +18,7 @@ const CORE_JS = "bluemsx_libretro.js";
 const CORE_WASM = "bluemsx_libretro.wasm";
 const ROM_URL = "../dino.rom";
 
-const MACHINE = "MSX - C-BIOS";          // the open-source BIOS, no proprietary ROMs
+const MACHINE = "MSX - C-BIOS";       // the open-source BIOS, no proprietary ROMs
 const SYSTEM_DIR = "/bios";              // where the core looks for Machines/...
 const SAVE_DIR = "/saves";
 const ROM_PATH = "/cart/dino.rom";

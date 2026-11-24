@@ -9,6 +9,16 @@ build that runs the same ROM.
 <a href="screenshots/title-night.png"><img src="screenshots/title-night.png" width="320"></a>
 <a href="screenshots/game-over.png"><img src="screenshots/game-over.png" width="320"></a>
 
+## Where this is going: the V9958
+
+The next target is the highest graphics level an MSX has - the V9958, with a
+512x212 16-colour bitmap and hardware scrolling - which also sidesteps the
+problem below entirely (no banks, no name table).  [`V9958.md`](V9958.md) has
+the register and memory-map facts, the C-BIOS MSX2 + V9958 machine the
+browser build will boot, and the list of what still has to be written.  The
+port in this folder is the finished MSX1 version; the V9958 one is a second
+target until it passes its own checks.
+
 ## Known issue: the pattern banks come first
 
 Graphics II keeps three banks of 64 patterns, and **the VDP picks the bank
